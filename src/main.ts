@@ -1,0 +1,837 @@
+import "./styles.css";
+import { defaultConfig, scenes, users, videos as seedVideos } from "./data";
+import { raceDecision, runRecommendation } from "./recommendation";
+import type { RankedVideo, Scene, StrategyConfig, UserProfile, Video } from "./types";
+
+type View = "overview" | "run" | "content" | "race" | "config" | "formula";
+
+interface DashboardSnapshot {
+  generatedAt: string;
+  exposure: number;
+  validPlay: number;
+  gameEntry: number;
+  effectiveGame: number;
+  validPlayRate: number;
+  finishRate: number;
+  gameReturnRate: number;
+  negativeRate: number;
+  dailyTrend: Array<{ label: string; exposure: number; validPlay: number; effectiveGame: number }>;
+  funnel: Array<{ label: string; value: number }>;
+  contentMix: Array<{ label: string; value: number; color: string }>;
+  alerts: Array<{ level: "高" | "中" | "低"; title: string; detail: string }>;
+  events: Array<{ time: string; type: string; title: string; detail: string }>;
+}
+
+const appElement = document.querySelector<HTMLDivElement>("#app");
+if (!appElement) throw new Error("App root not found");
+const app: HTMLDivElement = appElement;
+
+const state = {
+  view: "overview" as View,
+  userId: users[1].id,
+  scene: "首页推荐流" as Scene,
+  config: structuredClone(defaultConfig) as StrategyConfig,
+  videos: structuredClone(seedVideos) as Video[],
+  selected: null as RankedVideo | null,
+  contentQuery: "",
+  contentType: "全部",
+  contentStatus: "全部",
+  runAt: new Date(),
+  snapshot: null as DashboardSnapshot | null,
+};
+
+const pct = (value: number) => `${Math.round(value * 100)}%`;
+const score = (value: number) => Math.round(value * 100);
+const assetUrl = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
+const currentUser = () => users.find((user) => user.id === state.userId) ?? users[0];
+const run = () => runRecommendation(state.videos, currentUser(), state.scene, state.config);
+
+function sparkline(values: number[]) {
+  const width = 210;
+  const height = 48;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const points = values.map((value, index) => {
+    const x = (index / (values.length - 1)) * width;
+    const y = height - ((value - min) / span) * (height - 6) - 3;
+    return `${x},${y}`;
+  }).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${width} ${height}" role="img" aria-label="趋势图"><polyline points="${points}" /></svg>`;
+}
+
+function navItem(view: View, label: string, mark: string) {
+  return `<button class="nav-item ${state.view === view ? "active" : ""}" data-view="${view}">
+    <span class="nav-mark">${mark}</span><span>${label}</span>
+  </button>`;
+}
+
+function shell(content: string) {
+  app.innerHTML = `
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-symbol">牌</div>
+          <div><strong>牌流</strong><span>推荐策略系统</span></div>
+        </div>
+        <nav>
+          ${navItem("overview", "数据总览", "01")}
+          ${navItem("run", "推荐运行", "02")}
+          ${navItem("content", "内容池", "03")}
+          ${navItem("race", "UGC 赛马", "04")}
+          ${navItem("config", "策略配置", "05")}
+          ${navItem("formula", "计算说明", "06")}
+        </nav>
+        <div class="sidebar-status">
+          <span class="status-dot"></span>
+          <div><strong>策略服务正常</strong><small>规则版本 v1.1</small></div>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">棋牌游戏视频模块</p>
+            <h1>${viewTitle()}</h1>
+          </div>
+          <div class="top-actions">
+            <span class="updated">最近计算 ${state.runAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
+            <button class="button secondary" data-action="reset-demo">重置演示数据</button>
+          </div>
+        </header>
+        ${content}
+      </main>
+    </div>
+    ${state.selected ? detailDrawer(state.selected) : ""}
+  `;
+  bindEvents();
+}
+
+function viewTitle() {
+  const titles: Record<View, string> = {
+    overview: "推荐后台数据总览",
+    run: "推荐运行与解释",
+    content: "内容池与准入状态",
+    race: "UGC 赛马与流量池",
+    config: "排序权重与频控配置",
+    formula: "粗排与精排字段计算说明",
+  };
+  return titles[state.view];
+}
+
+function render() {
+  if (state.view === "overview") shell(overviewView());
+  if (state.view === "run") shell(runView());
+  if (state.view === "content") shell(contentView());
+  if (state.view === "race") shell(raceView());
+  if (state.view === "config") shell(configView());
+  if (state.view === "formula") shell(formulaView());
+}
+
+function dataNote(source: string, calculation: string, usage: string) {
+  return `<div class="data-note">
+    <span><i>数据</i>${source}</span>
+    <span><i>口径</i>${calculation}</span>
+    <span><i>用途</i>${usage}</span>
+  </div>`;
+}
+
+function overviewView() {
+  const data = state.snapshot ?? fallbackSnapshot();
+  const maxTrend = Math.max(...data.dailyTrend.map((item) => item.exposure));
+  const maxMix = Math.max(...data.contentMix.map((item) => item.value));
+  return `
+    <section class="simulation-banner">
+      <div><span class="live-dot"></span><strong>模拟数据运行中</strong><p>数据由本地 <code>/api/snapshot</code> 接口生成；正式环境应替换为曝光日志、播放日志、游戏行为日志和内容审核数据。</p></div>
+      <button class="button primary" data-action="refresh-snapshot">刷新模拟数据</button>
+    </section>
+    <section class="kpi-grid overview-kpis">
+      ${overviewKpi("今日视频曝光", data.exposure.toLocaleString(), "+12.4%", "较昨日", "#1769aa", "推荐曝光日志", "视频卡片进入可视区域且达到曝光阈值", "判断推荐流量规模")}
+      ${overviewKpi("有效播放率", pct(data.validPlayRate), "+3.1%", "较昨日", "#287a55", "播放开始、播放时长日志", "有效播放人数 ÷ 视频曝光人数", "衡量内容是否接住用户")}
+      ${overviewKpi("视频后进入游戏", data.gameEntry.toLocaleString(), "+8.7%", "较昨日", "#6a55a3", "导流点击与游戏启动日志", "观看后归因窗口内成功进入游戏的人次", "衡量视频向游戏导流能力")}
+      ${overviewKpi("完成有效局", data.effectiveGame.toLocaleString(), "+15.2%", "核心业务结果", "#d05a3a", "对局开始、结算日志", "视频归因用户进入游戏后完成一局有效对局", "推荐策略的核心业务目标")}
+    </section>
+    <section class="dashboard-grid">
+      <div class="panel trend-panel">
+        <div class="panel-head"><div><h2>近 7 日推荐效果</h2><p>曝光、有效播放和视频后有效局趋势</p></div><span class="result-badge">更新 ${new Date(data.generatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span></div>
+        ${dataNote("按自然日聚合曝光、播放、对局归因日志", "同一用户同一视频按业务规则去重后统计", "观察流量增长是否同步带来有效播放和游戏结果")}
+        <div class="legend"><span class="exp">曝光</span><span class="play">有效播放</span><span class="game">有效局</span></div>
+        <div class="trend-chart">
+          ${data.dailyTrend.map((item) => `<div class="trend-day">
+            <div class="trend-bars">
+              <i class="exposure" style="height:${Math.max(18, item.exposure / maxTrend * 180)}px"></i>
+              <i class="valid-play" style="height:${Math.max(12, item.validPlay / maxTrend * 180)}px"></i>
+              <i class="effective-game" style="height:${Math.max(5, item.effectiveGame / maxTrend * 180)}px"></i>
+            </div><span>${item.label}</span>
+          </div>`).join("")}
+        </div>
+      </div>
+      <div class="panel health-panel">
+        <div class="panel-head"><div><h2>策略健康度</h2><p>当前推荐体验与业务约束</p></div></div>
+        ${dataNote("匹配、多样性、回流、负反馈四组指标", "各指标归一化后按 30% / 20% / 35% / 15% 加权", "用于判断策略能否继续扩量及定位异常方向")}
+        <div class="health-score"><strong>86</strong><span>运行健康</span></div>
+        <div class="health-list">
+          ${healthRow("内容匹配度", 88, "good")}
+          ${healthRow("内容多样性", 82, "good")}
+          ${healthRow("游戏回流效率", 79, "watch")}
+          ${healthRow("负反馈控制", 92, "good")}
+        </div>
+      </div>
+      <div class="panel funnel-panel">
+        <div class="panel-head"><div><h2>视频到游戏转化漏斗</h2><p>核心终点为视频后完成有效局</p></div></div>
+        ${dataNote("曝光、播放、导流点击、游戏启动、匹配、结算事件", "每一级转化率 = 本级人数 ÷ 上一级人数", "定位用户从看视频到真正开局的主要流失环节")}
+        <div class="funnel-list">
+          ${data.funnel.map((item, index) => {
+            const width = Math.max(28, item.value / data.funnel[0].value * 100);
+            const conversion = index === 0 ? "100%" : pct(item.value / data.funnel[index - 1].value);
+            return `<div><span>${item.label}</span><b><i style="width:${width}%"></i></b><strong>${item.value.toLocaleString()}</strong><em>${conversion}</em></div>`;
+          }).join("")}
+        </div>
+      </div>
+      <div class="panel mix-panel">
+        <div class="panel-head"><div><h2>推荐内容结构</h2><p>首屏与后续瀑布流实际曝光占比</p></div></div>
+        ${dataNote("内容标签体系中的一级内容类型 + 曝光日志", "各类型曝光量 ÷ 总曝光量", "检查实战、教学、棋牌泛娱乐等供给是否失衡")}
+        <div class="mix-list">
+          ${data.contentMix.map((item) => `<div><span>${item.label}</span><b><i style="width:${item.value / maxMix * 100}%;background:${item.color}"></i></b><strong>${item.value}%</strong></div>`).join("")}
+        </div>
+      </div>
+      <div class="panel alert-panel">
+        <div class="panel-head"><div><h2>策略预警</h2><p>需要产品、运营或审核关注</p></div><span class="alert-count">${data.alerts.length}</span></div>
+        ${dataNote("指标监控、内容库存、赛马和审核系统", "指标连续越过阈值或环比异常时生成预警", "触发降权、停量、补充供给或人工复审")}
+        <div class="alert-list">${data.alerts.map((item) => `<article><span class="alert-level level-${item.level}">${item.level}</span><div><strong>${item.title}</strong><p>${item.detail}</p></div></article>`).join("")}</div>
+      </div>
+      <div class="panel event-panel">
+        <div class="panel-head"><div><h2>实时推荐事件</h2><p>模拟推荐服务最近执行记录</p></div><span class="live-label">LIVE</span></div>
+        ${dataNote("召回、排序、频控、赛马、准入服务运行日志", "按事件发生时间倒序展示最近记录", "排查某条内容为什么被推荐、延后、晋级或拦截")}
+        <div class="event-list">${data.events.map((item) => `<article><time>${item.time}</time><span class="event-type">${item.type}</span><div><strong>${item.title}</strong><p>${item.detail}</p></div></article>`).join("")}</div>
+      </div>
+    </section>
+  `;
+}
+
+function overviewKpi(label: string, value: string, change: string, note: string, color: string, source: string, calculation: string, usage: string) {
+  return `<article class="overview-kpi" style="--accent:${color}">
+    <span>${label}</span><strong>${value}</strong><div><b>${change}</b><em>${note}</em></div>
+    <details class="metric-note"><summary>指标说明</summary><p><b>数据：</b>${source}</p><p><b>口径：</b>${calculation}</p><p><b>用途：</b>${usage}</p></details>
+  </article>`;
+}
+
+function healthRow(label: string, value: number, status: string) {
+  return `<div><span>${label}</span><b><i class="${status}" style="width:${value}%"></i></b><strong>${value}</strong></div>`;
+}
+
+function fallbackSnapshot(): DashboardSnapshot {
+  const exposure = 126840;
+  return {
+    generatedAt: new Date().toISOString(),
+    exposure,
+    validPlay: 88652,
+    gameEntry: 11246,
+    effectiveGame: 6839,
+    validPlayRate: 0.699,
+    finishRate: 0.586,
+    gameReturnRate: 0.077,
+    negativeRate: 0.014,
+    dailyTrend: [
+      { label: "周一", exposure: 98400, validPlay: 64210, effectiveGame: 4810 },
+      { label: "周二", exposure: 103600, validPlay: 68740, effectiveGame: 5120 },
+      { label: "周三", exposure: 108900, validPlay: 73400, effectiveGame: 5480 },
+      { label: "周四", exposure: 106200, validPlay: 72010, effectiveGame: 5630 },
+      { label: "周五", exposure: 116500, validPlay: 80120, effectiveGame: 6010 },
+      { label: "周六", exposure: 121800, validPlay: 84290, effectiveGame: 6420 },
+      { label: "今日", exposure, validPlay: 88652, effectiveGame: 6839 },
+    ],
+    funnel: [
+      { label: "视频曝光", value: exposure },
+      { label: "有效播放", value: 88652 },
+      { label: "导流曝光", value: 32740 },
+      { label: "导流点击", value: 16582 },
+      { label: "进入游戏", value: 11246 },
+      { label: "匹配 / 入桌", value: 8417 },
+      { label: "完成有效局", value: 6839 },
+    ],
+    contentMix: [
+      { label: "爽点牌局 / 实战复盘", value: 31, color: "#1769aa" },
+      { label: "技巧教学 / 失误避坑", value: 24, color: "#287a55" },
+      { label: "棋牌泛娱乐 / 地域社交", value: 28, color: "#d68a22" },
+      { label: "活动赛事 / 产品功能", value: 9, color: "#6a55a3" },
+      { label: "探索内容", value: 8, color: "#84909c" },
+    ],
+    alerts: [
+      { level: "高", title: "活动内容负反馈升高", detail: "周末冲榜赛连续两小时不感兴趣率超过同类均值 38%，已自动停止保底扩量。" },
+      { level: "中", title: "新手内容供给不足", detail: "规则入门池可推荐内容仅 14 条，预计三日后首屏重复率超过警戒线。" },
+      { level: "低", title: "温州地域内容表现良好", detail: "温州低活用户次日回访率提升 6.2%，建议增加同类 UGC 冷启动名额。" },
+    ],
+    events: [
+      { time: "12:06:42", type: "精排", title: "完成一轮首页推荐", detail: "用户 U1002，候选 486 条，输出 20 条，首位为棋牌泛娱乐短剧。" },
+      { time: "12:06:31", type: "赛马", title: "UGC_0102 晋级 T2", detail: "有效播放 84%、完播 75%、负反馈 0.8%，满足一级赛马阈值。" },
+      { time: "12:06:08", type: "频控", title: "延后强导流活动内容", detail: "距上一次游戏入口仅 3 条，未满足最小间隔 5 条。" },
+      { time: "12:05:54", type: "准入", title: "拦截高风险投稿", detail: "命中未授权和夸大收益表达，进入风险复审池。" },
+      { time: "12:05:37", type: "召回", title: "低活用户触发泛娱乐召回", detail: "增加牌桌短剧、地域社交和爽点牌局候选，共召回 128 条。" },
+    ],
+  };
+}
+
+function browserSnapshot(): DashboardSnapshot {
+  const data = fallbackSnapshot();
+  const exposure = data.exposure + Math.round((Math.random() - 0.5) * 4400);
+  const validPlayRate = 0.699 + (Math.random() - 0.5) * 0.014;
+  const validPlay = Math.round(exposure * validPlayRate);
+  const gameEntry = Math.round(exposure * (0.088 + (Math.random() - 0.5) * 0.008));
+  const effectiveGame = Math.round(gameEntry * (0.604 + (Math.random() - 0.5) * 0.03));
+  const now = new Date();
+  return {
+    ...data,
+    generatedAt: now.toISOString(),
+    exposure,
+    validPlay,
+    validPlayRate,
+    gameEntry,
+    effectiveGame,
+    gameReturnRate: effectiveGame / validPlay,
+    finishRate: 0.586 + (Math.random() - 0.5) * 0.01,
+    negativeRate: 0.014 + (Math.random() - 0.5) * 0.002,
+    dailyTrend: data.dailyTrend.map((item, index) => index === data.dailyTrend.length - 1
+      ? { ...item, exposure, validPlay, effectiveGame }
+      : item),
+    funnel: [
+      { label: "视频曝光", value: exposure },
+      { label: "有效播放", value: validPlay },
+      { label: "导流曝光", value: Math.round(exposure * 0.258) },
+      { label: "导流点击", value: Math.round(exposure * 0.131) },
+      { label: "进入游戏", value: gameEntry },
+      { label: "匹配 / 入桌", value: Math.round(gameEntry * 0.748) },
+      { label: "完成有效局", value: effectiveGame },
+    ],
+    events: data.events.map((event, index) => ({
+      ...event,
+      time: new Date(now.getTime() - index * 61_000).toLocaleTimeString("zh-CN", { hour12: false }),
+    })),
+  };
+}
+
+async function loadSnapshot() {
+  if (location.hostname.endsWith("github.io")) {
+    state.snapshot = browserSnapshot();
+    if (state.view === "overview") render();
+    return;
+  }
+  try {
+    const response = await fetch("/api/snapshot", { cache: "no-store" });
+    if (!response.ok) throw new Error("snapshot unavailable");
+    state.snapshot = await response.json() as DashboardSnapshot;
+  } catch {
+    state.snapshot = browserSnapshot();
+  }
+  if (state.view === "overview") render();
+}
+
+function runView() {
+  const result = run();
+  const user = currentUser();
+  const ranked = result.ranked;
+  const avgReturn = ranked.length ? ranked.slice(0, 6).reduce((sum, item) => sum + item.breakdown.pGameReturn, 0) / Math.min(6, ranked.length) : 0;
+  const avgValid = ranked.length ? ranked.slice(0, 6).reduce((sum, item) => sum + item.breakdown.pValidPlay, 0) / Math.min(6, ranked.length) : 0;
+  return `
+    <section class="control-strip">
+      <label>目标用户
+        <select id="user-select">${users.map((item) => `<option value="${item.id}" ${item.id === user.id ? "selected" : ""}>${item.name} · ${item.stage}</option>`).join("")}</select>
+      </label>
+      <label>进入场景
+        <select id="scene-select">${scenes.map((item) => `<option value="${item}" ${item === state.scene ? "selected" : ""}>${item}</option>`).join("")}</select>
+      </label>
+      <button class="button primary" data-action="run-reco">重新计算推荐</button>
+      <div class="profile-summary">
+        <span>${user.region}</span><span>${user.skill}</span><span>${user.recentGames[0] ?? user.historyGames[0]}偏好</span>
+      </div>
+    </section>
+    ${dataNote("用户画像、近期游戏行为、视频行为和当前入口场景", "切换用户或场景后重新执行准入、召回、粗排、精排与重排", "模拟不同用户在不同位置看到的推荐结果")}
+
+    <section class="kpi-grid">
+      ${kpi("准入内容", `${result.admittedCount}`, `过滤 ${result.filteredCount} 条风险或待审内容`, [9, 9, 10, 10, 10, result.admittedCount], "内容状态、授权、版权风险、质量分", "通过硬性准入规则的视频数")}
+      ${kpi("召回候选", `${result.recalledCount}`, "7 路召回合并去重", [5, 7, 6, 8, 7, result.recalledCount], "用户兴趣、游戏、地域、阶段、热门、运营、探索召回", "各路候选按 videoId 合并去重")}
+      ${kpi("首屏有效播放预估", pct(avgValid), "前 6 条平均概率", [0.59, 0.62, 0.66, 0.64, 0.69, avgValid], "模型预测 pValidPlay", "排序前 6 条预测概率的算术平均")}
+      ${kpi("游戏回流预估", pct(avgReturn), "以完成有效局为结果", [0.11, 0.13, 0.14, 0.12, 0.15, avgReturn], "模型预测 pGameReturn", "排序前 6 条视频后完成有效局概率的平均")}
+    </section>
+
+    <section class="workspace-grid">
+      <div class="panel ranking-panel">
+        <div class="panel-head">
+          <div><h2>瀑布流排序结果</h2><p>已执行准入、召回、粗排、精排与体验重排</p></div>
+          <span class="result-badge">${ranked.length} 条结果</span>
+        </div>
+        ${dataNote("每条内容的标签、历史表现、用户匹配和模型预测值", "精排分 = 正向目标加权和 - 负反馈 / 疲劳 / 风险 / 强导流惩罚", "决定瀑布流最终顺序；点击任意内容可查看完整拆分")}
+        <div class="ranking-list">
+          ${ranked.map(recommendationRow).join("")}
+        </div>
+      </div>
+      <aside class="panel side-insight">
+        <div class="panel-head"><div><h2>本次策略摘要</h2><p>影响排序的主要因素</p></div></div>
+        ${dataNote("当前用户画像与本次排序 Top 结果", "统计首屏内容类型和候选命中的召回通道", "检查结果是否符合用户阶段目标和多样性约束")}
+        ${strategySummary(user, ranked)}
+      </aside>
+    </section>
+  `;
+}
+
+function kpi(label: string, value: string, note: string, values: number[], source: string, calculation: string) {
+  return `<article class="kpi"><div><span>${label}</span><strong>${value}</strong><small>${note}</small><p class="kpi-definition"><b>数据</b>${source}<br><b>口径</b>${calculation}</p></div>${sparkline(values)}</article>`;
+}
+
+function recommendationRow(item: RankedVideo) {
+  const v = item.video;
+  const riskClass = item.breakdown.riskPenalty > 0.15 ? "risk" : "";
+  return `
+    <button class="ranking-row ${riskClass}" data-video-id="${v.id}">
+      <span class="rank">${String(item.rank).padStart(2, "0")}</span>
+      <img src="${assetUrl(v.thumbnail)}" alt="${v.title}缩略图" />
+      <span class="content-main">
+        <span class="title-line"><strong>${v.title}</strong><em class="pool ${v.racePool.toLowerCase()}">${v.racePool}</em></span>
+        <span class="meta">${v.game} · ${v.primaryType} · ${v.duration}秒 · ${v.author}</span>
+        <span class="chips">${item.recallSources.slice(0, 3).map((source) => `<i>${source.replace("召回", "")}</i>`).join("")}</span>
+      </span>
+      <span class="score-cell"><small>粗排分</small><strong>${score(item.breakdown.roughScore)}</strong></span>
+      <span class="score-cell primary-score"><small>精排分</small><strong>${score(item.breakdown.feedScore)}</strong></span>
+      <span class="return-cell"><small>回流概率</small><strong>${pct(item.breakdown.pGameReturn)}</strong><em>${item.guideEntry}</em></span>
+      <span class="row-arrow">›</span>
+    </button>
+  `;
+}
+
+function strategySummary(user: UserProfile, ranked: RankedVideo[]) {
+  const topTypes = [...new Set(ranked.slice(0, 6).map((item) => item.video.primaryType))];
+  const sourceCounts = new Map<string, number>();
+  ranked.forEach((item) => item.recallSources.forEach((source) => sourceCounts.set(source, (sourceCounts.get(source) ?? 0) + 1)));
+  const sources = [...sourceCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  return `
+    <div class="focus-block">
+      <span class="block-label">用户策略目标</span>
+      <strong>${user.stage === "沉默" ? "召回开局" : user.stage === "低活" ? "内容承接 + 促活" : user.stage === "新增" ? "快速上手 + 首局" : "留存与稳定开局"}</strong>
+      <p>${user.name}当前偏好${user.preferredTypes.slice(0, 2).join("、")}，主要游戏为${[...user.recentGames, ...user.historyGames].slice(0, 2).join("、") || "暂无"}。</p>
+    </div>
+    <div class="summary-section">
+      <h3>首屏内容结构</h3>
+      ${topTypes.map((type, index) => `<div class="bar-row"><span>${type}</span><b><i style="width:${Math.max(28, 82 - index * 11)}%"></i></b></div>`).join("")}
+    </div>
+    <div class="summary-section">
+      <h3>主要召回通道</h3>
+      ${sources.map(([source, count]) => `<div class="source-row"><span>${source}</span><strong>${count}</strong></div>`).join("")}
+    </div>
+    <div class="rule-note">
+      <strong>体验重排已生效</strong>
+      <p>同类型连续不超过 ${state.config.maxSameTypeConsecutive} 条，同作者每页不超过 ${state.config.maxSameAuthorPerPage} 条，强导流间隔至少 ${state.config.strongGuideInterval} 条。</p>
+    </div>
+  `;
+}
+
+function contentView() {
+  const types = ["全部", ...new Set(state.videos.map((video) => video.primaryType))];
+  const filtered = state.videos.filter((video) =>
+    (state.contentType === "全部" || video.primaryType === state.contentType) &&
+    (state.contentStatus === "全部" || video.status === state.contentStatus) &&
+    (!state.contentQuery || [video.title, video.author, video.game, ...video.topics, ...video.keywords].join(" ").includes(state.contentQuery)),
+  );
+  return `
+    <section class="filter-bar">
+      <label class="search-label">搜索内容<input id="content-query" value="${state.contentQuery}" placeholder="标题、作者、主题或关键词" /></label>
+      <label>内容类型<select id="content-type">${types.map((type) => `<option ${type === state.contentType ? "selected" : ""}>${type}</option>`).join("")}</select></label>
+      <label>入库状态<select id="content-status">${["全部", "已入库", "待审核", "已下架"].map((status) => `<option ${status === state.contentStatus ? "selected" : ""}>${status}</option>`).join("")}</select></label>
+      <span class="filter-count">${filtered.length} / ${state.videos.length}</span>
+    </section>
+    ${dataNote("内容标签表、作者资料、授权审核和历史效果数据", "搜索和筛选仅改变后台查看范围，不直接修改线上分发", "定位某类内容的供给量、标签质量和准入状态")}
+    <section class="panel">
+      <div class="panel-head"><div><h2>视频内容池</h2><p>字段来自现有视频标签体系，准入状态直接影响是否进入推荐候选</p></div></div>
+      ${dataNote("标签结构取一级/二级内容类型、主题和情绪；表现取曝光后行为", "可分发 = 已入库 + 已授权 + 非高版权风险 + 质量分不低于 60", "只有可分发内容能进入召回；赛马池决定 UGC 可获得的流量上限")}
+      <div class="column-guide"><span><b>标签结构</b>用于匹配用户兴趣和内容多样性</span><span><b>目标人群 / 场景</b>用于场景召回和阶段匹配</span><span><b>表现</b>用于近期表现分和赛马判断</span><span><b>准入</b>是推荐前的硬过滤条件</span></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>内容</th><th>标签结构</th><th>目标人群 / 场景</th><th>表现</th><th>准入</th><th>赛马池</th></tr></thead>
+          <tbody>${filtered.map(contentRow).join("")}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function contentRow(video: Video) {
+  const admitted = video.status === "已入库" && video.authorized && video.copyrightRisk !== "高" && video.quality >= 0.6;
+  return `<tr>
+    <td><div class="table-content"><img src="${assetUrl(video.thumbnail)}" alt="" /><div><strong>${video.title}</strong><small>${video.id} · ${video.author}</small></div></div></td>
+    <td><strong>${video.primaryType} / ${video.secondaryType}</strong><small>${video.topics.slice(0, 2).join(" · ")}<br>${video.emotions.slice(0, 3).join(" · ")}</small></td>
+    <td><strong>${video.targetStages.join(" / ")}</strong><small>${video.scenes.slice(0, 2).join(" · ")}</small></td>
+    <td><strong>有效播放 ${pct(video.metrics.validPlayRate)}</strong><small>完播 ${pct(video.metrics.finishRate)} · 回流 ${pct(video.metrics.gameReturnRate)}</small></td>
+    <td><span class="status ${admitted ? "ok" : "blocked"}">${admitted ? "可分发" : "已拦截"}</span><small>${video.copyrightRisk}风险 · 质量 ${score(video.quality)}</small></td>
+    <td><span class="pool ${video.racePool.toLowerCase()}">${video.racePool}</span></td>
+  </tr>`;
+}
+
+function raceView() {
+  const pools = ["T0", "T1", "T2", "T3", "T4"] as const;
+  return `
+    <section class="race-summary">
+      <div><strong>${state.videos.filter((v) => v.isUgc).length}</strong><span>UGC 内容</span></div>
+      <div><strong>${state.videos.filter((v) => v.isUgc && ["T0", "T1"].includes(v.racePool)).length}</strong><span>冷启动测试中</span></div>
+      <div><strong>${state.videos.filter((v) => v.isUgc && raceDecision(v).action === "晋级").length}</strong><span>达到晋级条件</span></div>
+      <button class="button primary" data-action="advance-race">执行一轮赛马判断</button>
+    </section>
+    ${dataNote("仅统计 isUgc=true 的投稿内容及其累计曝光、播放、互动、回流和负反馈", "同游戏 + 同内容类型 + 同流量池分桶比较，达到阈值才逐级晋升", "控制新 UGC 的试投成本，让优质内容通过真实反馈获得更多流量")}
+    <section class="race-board">
+      ${pools.map((pool) => raceColumn(pool)).join("")}
+    </section>
+    <section class="panel race-rule-panel">
+      <div class="panel-head"><div><h2>赛马判断标准</h2><p>按同游戏、同内容类型和同流量池比较，棋牌泛娱乐单独分池</p></div></div>
+      ${dataNote("有效播放率、完播率、互动率、游戏回流率、负反馈率和曝光样本量", "综合赛马分与分桶动态阈值比较；风险命中优先于效果判断", "输出晋级、继续测试、降权或复审四种动作")}
+      <div class="rule-grid">
+        <div><strong>晋级</strong><p>有效播放、完播、互动和游戏回流综合表现超过分桶阈值，负反馈低于警戒线。</p></div>
+        <div><strong>继续测试</strong><p>样本量不足或表现接近均值，保留在当前流量池继续收集反馈。</p></div>
+        <div><strong>降权</strong><p>有效播放或回流明显偏低，快速划走和负反馈超过同类均值。</p></div>
+        <div><strong>复审</strong><p>举报、版权、赌博化表达或合规风险命中，立即停止推荐扩量。</p></div>
+      </div>
+    </section>
+  `;
+}
+
+function raceColumn(pool: Video["racePool"]) {
+  const items = state.videos.filter((video) => video.isUgc && video.racePool === pool);
+  const labels = { T0: "入库待测", T1: "冷启动池", T2: "一级赛马", T3: "二级赛马", T4: "稳定推荐" };
+  return `<div class="race-column">
+    <div class="race-column-head"><span class="pool ${pool.toLowerCase()}">${pool}</span><strong>${labels[pool]}</strong><em>${items.length}</em></div>
+    <div class="race-cards">${items.map(raceCard).join("") || `<p class="empty">暂无内容</p>`}</div>
+  </div>`;
+}
+
+function raceCard(video: Video) {
+  const decision = raceDecision(video);
+  return `<article class="race-card">
+    <img src="${assetUrl(video.thumbnail)}" alt="" />
+    <div><strong>${video.title}</strong><small>${video.primaryType} · ${video.author}</small></div>
+    <dl><div><dt>曝光</dt><dd>${video.metrics.exposure}</dd></div><div><dt>有效播放</dt><dd>${pct(video.metrics.validPlayRate)}</dd></div><div><dt>回流</dt><dd>${pct(video.metrics.gameReturnRate)}</dd></div></dl>
+    <span class="decision ${decision.action}">${decision.action}</span>
+  </article>`;
+}
+
+const weightLabels: Record<string, string> = {
+  gameMatch: "游戏匹配",
+  userStageMatch: "用户阶段匹配",
+  sceneMatch: "场景匹配",
+  contentQuality: "内容质量",
+  recentPerformance: "近期表现",
+  businessGoalMatch: "业务目标匹配",
+  freshness: "新鲜度",
+  exploration: "探索价值",
+  pValidPlay: "有效播放概率",
+  pFinish: "完播概率",
+  pInteraction: "互动概率",
+  pGameReturn: "游戏回流概率",
+  pLifecycleImprove: "生命周期提升",
+  matchScore: "综合匹配",
+  operationBoost: "运营加权",
+  negativePenalty: "负反馈惩罚",
+  fatiguePenalty: "疲劳惩罚",
+  riskPenalty: "风险惩罚",
+  hardGuidePenalty: "强导流惩罚",
+};
+
+function configView() {
+  return `
+    <section class="config-layout">
+      <div class="panel">
+        <div class="panel-head"><div><h2>粗排权重</h2><p>决定哪些召回候选进入精排</p></div><button class="button secondary small" data-action="reset-weights">恢复默认</button></div>
+        ${dataNote("内容标签匹配、内容质量、历史表现、新鲜度和探索标记", "粗排分 = 各特征归一化值 × 对应权重后求和", "从大规模召回候选中低成本筛出精排集合")}
+        <div class="sliders">${Object.entries(state.config.rough).map(([key, value]) => slider("rough", key, value)).join("")}</div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><h2>精排权重</h2><p>正向目标和惩罚项共同决定最终顺序</p></div></div>
+        ${dataNote("播放、完播、互动、回流、生命周期模型预测及风险特征", "精排分 = 正向概率与匹配分加权 - 各类惩罚项", "平衡用户观看体验与回到棋牌游戏并完成对局的业务目标")}
+        <div class="sliders">${Object.entries(state.config.feed).map(([key, value]) => slider("feed", key, value)).join("")}</div>
+      </div>
+      <div class="panel frequency-panel">
+        <div class="panel-head"><div><h2>探索与频控</h2><p>保护内容多样性并控制强导流体验</p></div></div>
+        ${dataNote("最终排序队列中的内容类型、作者、探索标记和导流强度", "精排完成后按比例插入探索内容，并逐条检查连续次数与最小间隔", "避免内容同质化、作者霸屏和频繁强导流造成反感")}
+        <div class="number-grid">
+          ${numberSetting("explorationRatio", "探索流量比例", state.config.explorationRatio * 100, "%", 0, 30)}
+          ${numberSetting("maxSameTypeConsecutive", "同类型最多连续", state.config.maxSameTypeConsecutive, "条", 1, 6)}
+          ${numberSetting("maxSameAuthorPerPage", "同作者每页最多", state.config.maxSameAuthorPerPage, "条", 1, 5)}
+          ${numberSetting("strongGuideInterval", "强导流最小间隔", state.config.strongGuideInterval, "条", 2, 10)}
+        </div>
+      </div>
+      <div class="panel config-preview">
+        <div class="panel-head"><div><h2>配置影响预览</h2><p>当前用户：${currentUser().name} · ${state.scene}</p></div><button class="button primary small" data-action="go-run">查看排序结果</button></div>
+        ${dataNote("当前页面全部权重与频控参数", "参数变化后立即重新计算当前用户的前 5 条结果", "上线前观察权重调整是否改变目标内容和回流预估")}
+        ${configPreview()}
+      </div>
+    </section>
+  `;
+}
+
+function slider(group: "rough" | "feed", key: string, value: number) {
+  const isPenalty = key.toLowerCase().includes("penalty");
+  return `<label class="slider-row">
+    <span><strong>${weightLabels[key] ?? key}</strong><small>${isPenalty ? "从最终分扣除" : group === "rough" ? "粗排正向权重" : "精排正向权重"}</small></span>
+    <input type="range" min="0" max="40" step="1" value="${Math.round(value * 100)}" data-weight-group="${group}" data-weight-key="${key}" />
+    <output>${Math.round(value * 100)}%</output>
+  </label>`;
+}
+
+function numberSetting(key: string, label: string, value: number, unit: string, min: number, max: number) {
+  return `<label class="number-setting"><span>${label}</span><div><input type="number" min="${min}" max="${max}" value="${value}" data-config-key="${key}" /><em>${unit}</em></div></label>`;
+}
+
+function configPreview() {
+  const ranked = run().ranked.slice(0, 5);
+  return `<div class="preview-list">${ranked.map((item) => `<div><span>${item.rank}</span><img src="${assetUrl(item.video.thumbnail)}" alt="" /><p><strong>${item.video.title}</strong><small>${item.video.primaryType} · 回流 ${pct(item.breakdown.pGameReturn)}</small></p><b>${score(item.breakdown.feedScore)}</b></div>`).join("")}</div>`;
+}
+
+interface FormulaField {
+  name: string;
+  code: string;
+  source: string;
+  formula: string;
+  usage: string;
+}
+
+const roughFormulaFields: FormulaField[] = [
+  { name: "游戏匹配", code: "gameMatch", source: "用户近期/历史/流失游戏、玩法标签、视频所属游戏", formula: "45%×近期游戏 + 25%×历史游戏 + 15%×流失游戏 + 10%×玩法交集 + 5%×同品类", usage: "识别用户最可能重新进入的游戏" },
+  { name: "用户阶段匹配", code: "userStageMatch", source: "用户新增/活跃/低活/沉默/回流阶段、水平、内容目标人群", formula: "45%×阶段接近度 + 25%×阶段直匹 + 20%×水平匹配 + 10%×兴趣匹配", usage: "让不同生命周期用户看到不同承接内容" },
+  { name: "场景匹配", code: "sceneMatch", source: "入口场景、视频时长、内容类型、强导流标记", formula: "40%×场景可投 + 25%×时长适配 + 20%×场景意图 + 15%×导流机会", usage: "匹配首页、等待、局后、退出前等使用情境" },
+  { name: "内容质量", code: "contentQuality", source: "审核或质量模型输出的 video.quality", formula: "直接使用质量分，范围 0-1；低于 0.6 在准入阶段拦截", usage: "控制低质内容进入排序" },
+  { name: "近期表现", code: "recentPerformance", source: "有效播放、完播、互动、游戏回流、负反馈", formula: "25%×有效播放/68% + 20%×完播/55% + 15%×互动/12% + 25%×回流/11% + 15%×(1-负反馈/2.5%)", usage: "用同类基线衡量内容近期竞争力" },
+  { name: "业务目标匹配", code: "businessGoalMatch", source: "用户阶段目标、内容业务目标、运营动作、活动与导流属性", formula: "35%×目标匹配 + 25%×分发动作 + 20%×活动属性 + 20%×入口能力", usage: "对齐拉新、促活、留存、召回和转化目标" },
+  { name: "新鲜度", code: "freshness", source: "内容发布至今小时数 ageHours、是否 UGC", formula: "max(0, 1-ageHours/48)；非 UGC 分母使用 72 小时", usage: "给新内容合理曝光，同时随时间自然衰减" },
+  { name: "探索价值", code: "exploration", source: "曝光量、发布时间、作者信用、主题、同类反馈、类型偏好", formula: "30%×新内容 + 25%×新作者 + 20%×新主题 + 15%×相似反馈 + 10%×多样性需求", usage: "发现新内容和用户潜在兴趣" },
+];
+
+const feedFormulaFields: FormulaField[] = [
+  { name: "有效播放概率", code: "pValidPlay", source: "用户有效播放率、视频有效播放率、场景匹配分", formula: "40%×用户有效播放率 + 40%×视频有效播放率 + 20%×(场景匹配×82%)", usage: "预测视频能否接住用户" },
+  { name: "完播概率", code: "pFinish", source: "用户完播率、视频完播率、视频时长", formula: "35%×用户完播率 + 45%×视频完播率 + 20%×时长先验（≤45秒为72%，否则55%）", usage: "预测用户是否看完" },
+  { name: "互动概率", code: "pInteraction", source: "用户互动倾向、视频互动率、作者信用、入口场景", formula: "30%×用户互动倾向 + 40%×视频互动率 + 20%×作者信用×15% + 10%×场景先验", usage: "预测点赞、评论、分享等行为" },
+  { name: "游戏回流概率", code: "pGameReturn", source: "用户回流倾向、视频历史回流率、场景导流意图、入口能力", formula: "30%×用户回流倾向 + 35%×视频回流率 + 20%×场景意图 + 15%×可用入口", usage: "预测观看后进入游戏并完成有效局" },
+  { name: "生命周期提升", code: "pLifecycleImprove", source: "用户阶段、次日回访率、游戏回流概率、内容偏好", formula: "低活/沉默/回流：45%×次日回访 + 35%×游戏回流 + 20%×类型偏好；其他阶段使用播放、回流、次日回访", usage: "避免只优化单次点击，兼顾后续活跃" },
+  { name: "综合匹配", code: "matchScore", source: "游戏、地域、阶段、水平、主题、场景匹配", formula: "35%×游戏 + 15%×地域 + 20%×阶段 + 10%×水平 + 10%×主题 + 10%×场景", usage: "汇总用户与内容的整体适配程度" },
+  { name: "运营加权", code: "operationBoost", source: "运营配置 video.operationBoost", formula: "运营配置值直接进入精排，建议限定 0-0.1 并设置有效期", usage: "支持活动、赛事和重点供给的可控扶持" },
+  { name: "负反馈惩罚", code: "negativePenalty", source: "快速划走、不感兴趣、举报、同类型负反馈", formula: "40%×快划 + 30%×不感兴趣 + 20%×举报归一值 + 10%×同类型负反馈", usage: "降低用户明确不喜欢的内容" },
+  { name: "疲劳惩罚", code: "fatiguePenalty", source: "近期已看作者、重复内容类型", formula: "25%×同作者重复 + 15%×类型疲劳信号", usage: "避免重复作者和内容同质化" },
+  { name: "风险惩罚", code: "riskPenalty", source: "版权、合规词、低质量、举报率", formula: "35%×版权风险 + 25%×合规风险 + 20%×低质量 + 20%×投诉风险", usage: "在硬拦截之外继续限制边缘风险内容" },
+  { name: "强导流惩罚", code: "hardGuidePenalty", source: "强导流标记、用户导流冷却、当前场景", formula: "强导流且处于冷却期=0.8；首页强导流=0.15；否则=0", usage: "避免连续催促用户进入游戏" },
+];
+
+function formulaTable(fields: FormulaField[], group: "rough" | "feed") {
+  return `<div class="formula-table-wrap"><table class="formula-table">
+    <thead><tr><th>字段</th><th>原始数据</th><th>字段计算公式</th><th>进入总分的方式</th><th>策略作用</th></tr></thead>
+    <tbody>${fields.map((field) => {
+      const weight = state.config[group][field.code as keyof StrategyConfig[typeof group]] as number;
+      const penalty = field.code.toLowerCase().includes("penalty");
+      return `<tr>
+        <td><strong>${field.name}</strong><code>${field.code}</code></td>
+        <td>${field.source}</td>
+        <td><span class="formula-text">${field.formula}</span></td>
+        <td><b class="${penalty ? "minus" : "plus"}">${penalty ? "−" : "+"} ${Math.round(weight * 100)}% × 字段值</b></td>
+        <td>${field.usage}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table></div>`;
+}
+
+function contributionRow(label: string, value: number, weight: number, negative = false) {
+  const contribution = value * weight;
+  return `<div class="contribution-row">
+    <span>${label}</span><code>${score(value)} × ${Math.round(weight * 100)}%</code>
+    <b class="${negative ? "minus" : "plus"}">${negative ? "−" : "+"}${(contribution * 100).toFixed(2)}</b>
+  </div>`;
+}
+
+function formulaView() {
+  const result = run();
+  const example = result.ranked[0];
+  const b = example.breakdown;
+  const roughPositive: Array<[string, number, number]> = [
+    ["游戏匹配", b.gameMatch, state.config.rough.gameMatch],
+    ["用户阶段匹配", b.userStageMatch, state.config.rough.userStageMatch],
+    ["场景匹配", b.sceneMatch, state.config.rough.sceneMatch],
+    ["内容质量", b.contentQuality, state.config.rough.contentQuality],
+    ["近期表现", b.recentPerformance, state.config.rough.recentPerformance],
+    ["业务目标匹配", b.businessGoalMatch, state.config.rough.businessGoalMatch],
+    ["新鲜度", b.freshness, state.config.rough.freshness],
+    ["探索价值", b.exploration, state.config.rough.exploration],
+  ];
+  const roughPenalty: Array<[string, number, number]> = [
+    ["风险惩罚", b.riskPenalty, 0.12],
+    ["疲劳惩罚", b.fatiguePenalty, 0.08],
+    ["负反馈惩罚", b.negativePenalty, 0.1],
+  ];
+  const feedPositive: Array<[string, number, number]> = [
+    ["有效播放概率", b.pValidPlay, state.config.feed.pValidPlay],
+    ["完播概率", b.pFinish, state.config.feed.pFinish],
+    ["互动概率", b.pInteraction, state.config.feed.pInteraction],
+    ["游戏回流概率", b.pGameReturn, state.config.feed.pGameReturn],
+    ["生命周期提升", b.pLifecycleImprove, state.config.feed.pLifecycleImprove],
+    ["综合匹配", b.matchScore, state.config.feed.matchScore],
+    ["新鲜度", b.freshness, state.config.feed.freshness],
+    ["运营加权", b.operationBoost, state.config.feed.operationBoost],
+    ["探索价值", b.exploration, state.config.feed.exploration],
+  ];
+  const feedPenalty: Array<[string, number, number]> = [
+    ["负反馈惩罚", b.negativePenalty, state.config.feed.negativePenalty],
+    ["疲劳惩罚", b.fatiguePenalty, state.config.feed.fatiguePenalty],
+    ["风险惩罚", b.riskPenalty, state.config.feed.riskPenalty],
+    ["强导流惩罚", b.hardGuidePenalty, state.config.feed.hardGuidePenalty],
+  ];
+  return `
+    <section class="formula-intro">
+      <div><strong>统一计算范围</strong><p>所有字段先归一化到 0-1，总分计算后再限制在 0-1；后台展示时乘以 100 转为分数。</p></div>
+      <div><strong>当前演示对象</strong><p>${currentUser().name} · ${state.scene} · 示例视频《${example.video.title}》</p></div>
+      <div><strong>计算顺序</strong><p>准入 → 7 路召回 → 粗排 Top 50 → 精排 → 多样性与频控重排。</p></div>
+    </section>
+
+    <section class="panel formula-section">
+      <div class="panel-head"><div><h2>粗排字段计算</h2><p>先用低成本特征筛选候选，当前默认正向权重之和为 100%</p></div><span class="formula-stage">ROUGH RANK</span></div>
+      <div class="total-formula"><b>粗排分</b><code>clamp(Σ 正向字段值 × 配置权重 − 12%×风险 − 8%×疲劳 − 10%×负反馈, 0, 1)</code></div>
+      ${formulaTable(roughFormulaFields, "rough")}
+    </section>
+
+    <section class="panel formula-section">
+      <div class="panel-head"><div><h2>精排字段计算</h2><p>使用行为概率、多目标价值和惩罚项决定最终排序</p></div><span class="formula-stage feed">FINE RANK</span></div>
+      <div class="total-formula"><b>精排分</b><code>clamp(Σ 正向目标值 × 配置权重 − Σ 惩罚值 × 惩罚权重, 0, 1)</code></div>
+      ${formulaTable(feedFormulaFields, "feed")}
+    </section>
+
+    <section class="calculation-example">
+      <div class="panel">
+        <div class="panel-head"><div><h2>粗排真实代入示例</h2><p>${example.video.id} 当前粗排展示分 ${score(b.roughScore)}</p></div></div>
+        <div class="contribution-list">
+          ${roughPositive.map(([label, value, weight]) => contributionRow(label, value, weight)).join("")}
+          ${roughPenalty.map(([label, value, weight]) => contributionRow(label, value, weight, true)).join("")}
+        </div>
+        <div class="calculation-total"><span>限制到 0-100 后</span><strong>${score(b.roughScore)} 分</strong></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><h2>精排真实代入示例</h2><p>${example.video.id} 当前精排展示分 ${score(b.feedScore)}</p></div></div>
+        <div class="contribution-list">
+          ${feedPositive.map(([label, value, weight]) => contributionRow(label, value, weight)).join("")}
+          ${feedPenalty.map(([label, value, weight]) => contributionRow(label, value, weight, true)).join("")}
+        </div>
+        <div class="calculation-total"><span>限制到 0-100 后</span><strong>${score(b.feedScore)} 分</strong></div>
+      </div>
+    </section>
+
+    <section class="panel rerank-explain">
+      <div class="panel-head"><div><h2>精排之后为什么名次还会变化</h2><p>最终展示顺序不是简单按精排分从高到低</p></div></div>
+      <div class="rerank-flow">
+        <div><span>1</span><strong>精排降序</strong><p>先按 feedScore 从高到低排列。</p></div>
+        <div><span>2</span><strong>同类型频控</strong><p>同类型最多连续 ${state.config.maxSameTypeConsecutive} 条。</p></div>
+        <div><span>3</span><strong>同作者频控</strong><p>同作者每页最多 ${state.config.maxSameAuthorPerPage} 条。</p></div>
+        <div><span>4</span><strong>强导流频控</strong><p>两个强导流内容至少间隔 ${state.config.strongGuideInterval} 条。</p></div>
+        <div><span>5</span><strong>延后而非删除</strong><p>命中频控的内容进入延后队列，排到正常内容之后。</p></div>
+      </div>
+    </section>
+  `;
+}
+
+function detailDrawer(item: RankedVideo) {
+  const b = item.breakdown;
+  const factors: Array<[string, number]> = [
+    ["游戏匹配分", b.gameMatch],
+    ["地域匹配分", b.regionMatch],
+    ["用户阶段匹配分", b.userStageMatch],
+    ["场景匹配分", b.sceneMatch],
+    ["内容质量分", b.contentQuality],
+    ["近期表现分", b.recentPerformance],
+    ["游戏回流概率", b.pGameReturn],
+    ["生命周期提升概率", b.pLifecycleImprove],
+  ];
+  return `<div class="drawer-backdrop" data-action="close-drawer"></div>
+    <aside class="drawer">
+      <button class="drawer-close" data-action="close-drawer" aria-label="关闭">×</button>
+      <img class="drawer-cover" src="${assetUrl(item.video.thumbnail)}" alt="${item.video.title}" />
+      <span class="drawer-rank">当前第 ${item.rank} 位</span>
+      <h2>${item.video.title}</h2>
+      <p class="drawer-meta">${item.video.id} · ${item.video.author} · ${item.video.primaryType} / ${item.video.secondaryType}</p>
+      <div class="drawer-score"><div><small>粗排分</small><strong>${score(b.roughScore)}</strong></div><div><small>精排分</small><strong>${score(b.feedScore)}</strong></div><div><small>游戏回流</small><strong>${pct(b.pGameReturn)}</strong></div></div>
+      <section><h3>进入候选的原因</h3><p class="section-help">数据来自本条视频命中的召回通道；用于解释它为什么有资格参与排序。</p><div class="chips large">${item.recallSources.map((source) => `<i>${source}</i>`).join("")}</div></section>
+      <section><h3>排序解释</h3><p class="section-help">由高贡献匹配项、效果预测和业务规则自动生成，帮助运营理解当前名次。</p><ul class="explain-list">${item.explanation.map((text) => `<li>${text}</li>`).join("")}</ul></section>
+      <section><h3>核心分值拆解</h3><p class="section-help">各字段均归一化到 0-100；乘以策略配置中的权重后进入粗排或精排公式。</p><div class="factor-list">${factors.map(([name, value]) => `<div><span>${name}</span><b><i style="width:${score(value)}%"></i></b><strong>${score(value)}</strong></div>`).join("")}</div></section>
+      <section class="penalty-section"><h3>惩罚与导流</h3><p class="section-help">惩罚项从精排正向得分中扣除；导流入口由用户阶段、视频业务目标和频控共同决定。</p><div class="penalty-grid"><span>负反馈惩罚 <b>${score(b.negativePenalty)}</b></span><span>疲劳惩罚 <b>${score(b.fatiguePenalty)}</b></span><span>风险惩罚 <b>${score(b.riskPenalty)}</b></span><span>推荐入口 <b>${item.guideEntry}</b></span></div></section>
+    </aside>`;
+}
+
+function bindEvents() {
+  document.querySelectorAll<HTMLElement>("[data-view]").forEach((element) => element.addEventListener("click", () => {
+    state.view = element.dataset.view as View;
+    state.selected = null;
+    render();
+  }));
+  document.querySelector<HTMLSelectElement>("#user-select")?.addEventListener("change", (event) => {
+    state.userId = (event.target as HTMLSelectElement).value;
+    state.runAt = new Date();
+    render();
+  });
+  document.querySelector<HTMLSelectElement>("#scene-select")?.addEventListener("change", (event) => {
+    state.scene = (event.target as HTMLSelectElement).value as Scene;
+    state.runAt = new Date();
+    render();
+  });
+  document.querySelectorAll<HTMLElement>("[data-video-id]").forEach((element) => element.addEventListener("click", () => {
+    state.selected = run().ranked.find((item) => item.video.id === element.dataset.videoId) ?? null;
+    render();
+  }));
+  document.querySelector<HTMLInputElement>("#content-query")?.addEventListener("input", (event) => {
+    state.contentQuery = (event.target as HTMLInputElement).value;
+    render();
+    const field = document.querySelector<HTMLInputElement>("#content-query");
+    field?.focus();
+    field?.setSelectionRange(state.contentQuery.length, state.contentQuery.length);
+  });
+  document.querySelector<HTMLSelectElement>("#content-type")?.addEventListener("change", (event) => {
+    state.contentType = (event.target as HTMLSelectElement).value;
+    render();
+  });
+  document.querySelector<HTMLSelectElement>("#content-status")?.addEventListener("change", (event) => {
+    state.contentStatus = (event.target as HTMLSelectElement).value;
+    render();
+  });
+  document.querySelectorAll<HTMLInputElement>("[data-weight-key]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const group = input.dataset.weightGroup as "rough" | "feed";
+      const key = input.dataset.weightKey as keyof StrategyConfig[typeof group];
+      (state.config[group][key] as number) = Number(input.value) / 100;
+      input.nextElementSibling!.textContent = `${input.value}%`;
+    });
+    input.addEventListener("change", () => render());
+  });
+  document.querySelectorAll<HTMLInputElement>("[data-config-key]").forEach((input) => input.addEventListener("change", () => {
+    const key = input.dataset.configKey as keyof StrategyConfig;
+    const raw = Number(input.value);
+    (state.config[key] as number) = key === "explorationRatio" ? raw / 100 : raw;
+    render();
+  }));
+  document.querySelectorAll<HTMLElement>("[data-action]").forEach((element) => element.addEventListener("click", () => handleAction(element.dataset.action ?? "")));
+}
+
+function handleAction(action: string) {
+  if (action === "close-drawer") state.selected = null;
+  if (action === "run-reco") state.runAt = new Date();
+  if (action === "reset-demo") {
+    state.videos = structuredClone(seedVideos);
+    state.config = structuredClone(defaultConfig);
+    state.selected = null;
+  }
+  if (action === "reset-weights") state.config = structuredClone(defaultConfig);
+  if (action === "go-run") state.view = "run";
+  if (action === "refresh-snapshot") {
+    void loadSnapshot();
+    return;
+  }
+  if (action === "advance-race") {
+    const order = ["T0", "T1", "T2", "T3", "T4"] as const;
+    state.videos = state.videos.map((video) => {
+      if (!video.isUgc) return video;
+      const decision = raceDecision(video);
+      if (decision.action !== "晋级") return video;
+      const index = order.indexOf(video.racePool);
+      return { ...video, racePool: order[Math.min(index + 1, order.length - 1)] };
+    });
+  }
+  render();
+}
+
+render();
+void loadSnapshot();
