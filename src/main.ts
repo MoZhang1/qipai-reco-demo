@@ -549,22 +549,21 @@ function contentRow(video: Video) {
   </tr>`;
 }
 
-function pipelineNode(kind: string, title: string, data: string, rule: string, output: string) {
-  return `<article class="pipeline-node ${kind}">
-    <span>${kind}</span>
-    <h3>${title}</h3>
-    <p><b>输入数据</b>${data}</p>
-    <p><b>处理规则</b>${rule}</p>
-    <em>${output}</em>
+function flowCard(step: string, title: string, text: string, tags: string[]) {
+  return `<article class="flow-card">
+    <span>${step}</span>
+    <strong>${title}</strong>
+    <p>${text}</p>
+    <div>${tags.map((tag) => `<i>${tag}</i>`).join("")}</div>
   </article>`;
 }
 
-function pipelineDecision(title: string, pass: string, block: string) {
-  return `<article class="pipeline-decision">
-    <span>判断</span>
-    <h3>${title}</h3>
-    <div><strong>通过</strong><p>${pass}</p></div>
-    <div><strong>不通过</strong><p>${block}</p></div>
+function raceStep(pool: string, title: string, text: string, result: string) {
+  return `<article class="race-step-card">
+    <span>${pool}</span>
+    <strong>${title}</strong>
+    <p>${text}</p>
+    <em>${result}</em>
   </article>`;
 }
 
@@ -572,58 +571,92 @@ function pipelineView() {
   return `
     <section class="pipeline-hero">
       <div>
-        <h2>一张图看清：视频从入库，到推荐给目标用户，再到 UGC 赛马反馈</h2>
-        <p>这页描述真实系统应该怎么跑。内容不是“打一个标签就推”，而是先准入、再画像匹配、再召回排序、再按真实播放和游戏回流持续赛马。</p>
+        <h2>视频分发主链路：内容先入池，UGC 先赛马，最后按用户画像生成瀑布流</h2>
+        <p>看这页只需要顺着箭头走：左边是内容怎么进来，中间是怎么变成候选，右边是怎么分发给目标用户，下面是 UGC 用真实数据不断晋级或降权。</p>
       </div>
       <div class="pipeline-legend">
-        <span><i class="ingest"></i>内容入库</span>
-        <span><i class="rank"></i>推荐分发</span>
-        <span><i class="race"></i>UGC 赛马</span>
-        <span><i class="feedback"></i>反馈闭环</span>
+        <span><i class="ingest"></i>主链路</span>
+        <span><i class="race"></i>UGC 分支</span>
+        <span><i class="rank"></i>推荐排序</span>
+        <span><i class="feedback"></i>数据回流</span>
       </div>
     </section>
     ${dataNote("视频素材、投稿单、授权、内容标签、用户画像、曝光播放、游戏行为和负反馈日志", "先硬准入，再召回排序，再按目标用户真实结果更新内容池和赛马池", "让内容分发服务于棋牌游戏用户承接和回流，而不是只按静态标签权重推送")}
 
-    <section class="pipeline-map">
-      <div class="pipeline-lane lane-ingest">
-        <div class="lane-head"><strong>内容入库层</strong><span>决定内容能不能进入候选池</span></div>
-        ${pipelineNode("入库", "视频上传 / 素材接入", "UGC 投稿、官方素材、达人授权素材、标题、封面、游戏选择、地域和授权确认。", "生成 content_id，保存素材文件和投稿单；UGC 默认状态为待审核。", "得到待处理内容")}
-        ${pipelineDecision("准入审核", "授权清晰、版权低风险、无赌博化表达、素材可播放、质量分 ≥ 60。", "进入复审 / 驳回 / 下架；不进入推荐召回。")}
-        ${pipelineNode("标签", "内容理解与标签入库", "OCR/ASR、标题、封面、作者信用、人工补标、现有标签体系。", "识别游戏、玩法、一级/二级内容类型、主题、情绪、目标人群、可投场景。", "写入内容池，可被召回")}
+    <section class="visual-flow">
+      <div class="flow-source official">
+        <strong>官方 / 达人内容</strong>
+        <span>运营素材、达人授权、赛事活动、教学复盘</span>
+        <em>审核通过后直接进入内容池</em>
       </div>
-
-      <div class="pipeline-lane lane-rank">
-        <div class="lane-head"><strong>推荐分发层</strong><span>决定某个用户看到什么、先看什么</span></div>
-        ${pipelineNode("用户", "目标用户画像", "用户近期游戏、历史游戏、流失游戏、地区、水平、生命周期阶段、内容偏好、负反馈。", "把用户拆成游戏兴趣、阶段目标、地域偏好、内容偏好、回流倾向。", "形成本次推荐请求")}
-        ${pipelineNode("召回", "多路候选召回", "内容池标签、用户画像、当前入口场景、热门分桶、探索池、UGC 赛马池。", "按游戏关联、人群阶段、场景、标签相似、棋牌泛娱乐、探索内容多路召回。", "得到候选视频集合")}
-        ${pipelineNode("粗排", "低成本筛选", "游戏匹配、阶段匹配、场景匹配、质量分、近期表现、业务目标、新鲜度、探索价值。", "用粗排分筛掉明显不适配内容，保留 Top 候选进入精排。", "得到精排候选")}
-        ${pipelineNode("精排", "多目标排序", "有效播放概率、完播、互动、游戏回流、生命周期提升、匹配分、运营加权、惩罚项。", "计算 feedScore；核心不是播放最大化，而是观看后能不能回到游戏。", "得到初始排序")}
-        ${pipelineNode("重排", "体验与频控", "同类型连续数、同作者频次、强导流间隔、负反馈、风险信号。", "控制重复、疲劳和强导流打扰；保留少量探索位置。", "生成用户瀑布流")}
+      <div class="flow-source ugc">
+        <strong>UGC 玩家投稿</strong>
+        <span>打牌段子、牌桌短剧、朋友局实拍、玩家复盘</span>
+        <em>审核通过后先进入 T0 赛马</em>
       </div>
-
-      <div class="pipeline-lane lane-race">
-        <div class="lane-head"><strong>UGC 赛马层</strong><span>决定新内容如何从小流量长出来</span></div>
-        ${pipelineNode("T0", "入库小样本试投", "同游戏、同内容类型、同地域分桶；最小曝光样本。", "只给低风险小流量，观察有效播放、完播、快划、举报和负反馈。", "继续测试或复审")}
-        ${pipelineNode("T1/T2", "同桶赛马晋级", "曝光、有效播放、完播、互动、游戏回流、次日回访、作者信用。", "和同桶均值比较；棋牌泛娱乐、技巧教学、活动内容分桶单独比较。", "晋级 / 继续测试 / 降权")}
-        ${pipelineNode("T3/T4", "稳定推荐供给", "长期表现、疲劳衰退、负反馈、回流转化、风险复查。", "进入正常推荐候选池，仍受精排、频控、风险和衰退监控约束。", "成为稳定供给")}
+      <div class="flow-gate">准入审核<br><small>版权 / 合规 / 质量 / 标签完整</small></div>
+      <div class="flow-pool">内容池<br><small>可召回视频集合</small></div>
+      <div class="flow-rank">推荐计算<br><small>召回 → 粗排 → 精排 → 重排</small></div>
+      <div class="flow-users">
+        <strong>目标用户瀑布流</strong>
+        <span>低活双扣用户</span>
+        <span>新手双扣用户</span>
+        <span>活跃老玩家</span>
+        <span>沉默召回用户</span>
       </div>
+      <div class="flow-feedback">行为回流<br><small>曝光 / 播放 / 负反馈 / 进游戏 / 有效局</small></div>
+    </section>
 
-      <div class="pipeline-lane lane-feedback">
-        <div class="lane-head"><strong>反馈闭环层</strong><span>把真实结果回写到内容、用户和模型</span></div>
-        ${pipelineNode("曝光", "用户侧行为回传", "曝光、停留、有效播放、完播、点赞评论分享、快划、不感兴趣、举报。", "更新内容近期表现、用户兴趣强弱、负反馈和疲劳信号。", "影响下一次排序")}
-        ${pipelineNode("回流", "游戏结果归因", "视频后点击入口、进入游戏、匹配入桌、完成有效局、次日回访。", "按归因窗口计算游戏回流概率和生命周期提升。", "反哺精排和赛马")}
-        ${pipelineNode("策略", "策略迭代与运营干预", "分桶效果、内容供给缺口、风险复审、目标用户转化。", "调权重、扩池/降权、补内容、设置运营扶持和冷却。", "进入下一轮推荐")}
+    <section class="panel main-flow-panel">
+      <div class="panel-head"><div><h2>主流程怎么跑</h2><p>从视频进来，到某个用户刷到它</p></div><span class="result-badge">主链路</span></div>
+      <div class="big-flow">
+        ${flowCard("1", "内容进入", "官方/达人内容和 UGC 都先形成内容记录，UGC 默认待审核。", ["视频文件", "标题封面", "授权"])}
+        ${flowCard("2", "准入审核", "不过审的内容不进推荐；通过后补齐游戏、玩法、类型、情绪、目标人群标签。", ["版权", "合规", "质量分"])}
+        ${flowCard("3", "内容池", "官方/达人内容直接可召回；UGC 必须先获得赛马池资格。", ["已入库", "可召回", "赛马池"])}
+        ${flowCard("4", "用户请求", "用户打开视频流时，系统读取他玩的游戏、地区、阶段、偏好和负反馈。", ["近期游戏", "用户阶段", "偏好"])}
+        ${flowCard("5", "排序输出", "召回候选后计算粗排、精排和频控，输出这个用户的瀑布流顺序。", ["召回", "粗排", "精排"])}
+      </div>
+    </section>
+
+    <section class="ugc-race-diagram">
+      <div class="panel">
+        <div class="panel-head"><div><h2>UGC 赛马分支</h2><p>新投稿不是直接大量推荐，而是从小流量开始拿真实表现换流量</p></div><span class="result-badge">UGC 分支</span></div>
+        <div class="race-track">
+          ${raceStep("T0", "小样本试投", "同游戏、同类型、同地域分桶，先给最小曝光。", "差：复审/降权")}
+          ${raceStep("T1", "冷启动扩样", "达到基础有效播放和完播阈值，扩大样本。", "一般：继续测试")}
+          ${raceStep("T2/T3", "同桶赛马", "和同桶均值比较有效播放、互动、回流、负反馈。", "好：进入更多召回")}
+          ${raceStep("T4", "稳定推荐", "连续多轮稳定后进入正常推荐候选，仍受衰退监控。", "稳定：长期供给")}
+        </div>
+      </div>
+    </section>
+
+    <section class="pipeline-example">
+      <div class="example-user">
+        <span>目标用户例子</span>
+        <strong>三日未开局用户 · 浙江 · 双扣</strong>
+        <p>近期玩过双扣，已经三天没开局；偏好棋牌泛娱乐、爽点牌局、地域社交；不爱看规则入门和活动广告。</p>
+      </div>
+      <div class="example-arrow">所以</div>
+      <div class="example-feed">
+        <div><b>1</b><strong>牌桌短剧 / 打牌段子</strong><span>轻内容先接住低活用户</span></div>
+        <div><b>2</b><strong>双扣极限翻盘</strong><span>命中玩过的游戏和爽点偏好</span></div>
+        <div><b>3</b><strong>温州朋友局</strong><span>地域和熟人局共鸣</span></div>
+        <div><b>4</b><strong>同款游戏入口</strong><span>观看后导回双扣开局</span></div>
+      </div>
+      <div class="example-feedback">
+        <strong>看完后的数据回流</strong>
+        <p>有效播放、完播、点击游戏入口、完成有效局、负反馈会同时更新用户画像、内容表现和 UGC 赛马池。</p>
       </div>
     </section>
 
     <section class="pipeline-output">
       <div class="panel">
-        <div class="panel-head"><div><h2>目标用户分发结果</h2><p>流程最终落到某个用户的一页瀑布流</p></div></div>
+        <div class="panel-head"><div><h2>最终系统输出</h2><p>每一轮推荐结束后都会产出两个结果</p></div></div>
         <div class="target-flow">
-          <div><strong>低活双扣用户</strong><p>优先棋牌泛娱乐、地域社交、爽点牌局，用轻内容重新接住用户，再给同款游戏入口。</p></div>
-          <div><strong>新手双扣用户</strong><p>优先规则入门、失误避坑和短时长内容，目标是看懂玩法并完成首局。</p></div>
-          <div><strong>活跃老玩家</strong><p>优先实战复盘、技巧教学和极限翻盘，提升留存和局后再开一局。</p></div>
-          <div><strong>沉默召回用户</strong><p>优先地域熟人局、打牌段子、轻剧情，降低回归门槛，再承接到游戏。</p></div>
+          <div><strong>给用户</strong><p>一页有顺序的瀑布流，以及每条视频对应的游戏入口。</p></div>
+          <div><strong>给内容</strong><p>曝光、有效播放、完播、互动、负反馈、游戏回流等表现分。</p></div>
+          <div><strong>给 UGC</strong><p>晋级、继续测试、降权、复审四类赛马动作。</p></div>
+          <div><strong>给策略</strong><p>下一轮排序权重、召回池、频控和运营扶持的调整依据。</p></div>
         </div>
       </div>
       <div class="panel">

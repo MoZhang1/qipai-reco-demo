@@ -279,6 +279,52 @@ td small { color: var(--muted); margin-top: 5px; line-height: 1.45; }
 .pipeline-legend .rank { background: var(--green); }
 .pipeline-legend .race { background: var(--amber); }
 .pipeline-legend .feedback { background: var(--purple); }
+.visual-flow { position: relative; display: grid; grid-template-columns: 1.1fr 1.1fr .78fr .92fr 1.06fr 1.15fr .96fr; grid-template-rows: auto auto; gap: 12px 18px; align-items: center; padding: 18px; margin-bottom: 14px; background: white; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.visual-flow::before { content: ""; position: absolute; left: 18px; right: 18px; top: 50%; border-top: 2px solid #c7d0d8; }
+.visual-flow::after { content: ""; position: absolute; right: 14px; top: calc(50% - 6px); border-left: 10px solid #c7d0d8; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.flow-source, .flow-gate, .flow-pool, .flow-rank, .flow-users, .flow-feedback { position: relative; z-index: 1; border-radius: 7px; border: 1px solid #dfe4e8; background: #fff; padding: 13px; min-height: 112px; box-shadow: 0 1px 0 #1d2c3810; }
+.flow-source { display: grid; align-content: start; gap: 6px; }
+.flow-source.official { grid-column: 1; grid-row: 1; border-top: 4px solid var(--blue); }
+.flow-source.ugc { grid-column: 1; grid-row: 2; border-top: 4px solid var(--amber); }
+.flow-source strong, .flow-users strong { font-size: 13px; }
+.flow-source span, .flow-source em { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.flow-source em { color: var(--blue); font-style: normal; font-weight: 750; }
+.flow-source.ugc em { color: var(--amber); }
+.flow-gate { grid-column: 2; grid-row: 1 / span 2; border-top: 4px solid #5d7488; display: grid; place-content: center; text-align: center; font-size: 15px; font-weight: 800; }
+.flow-pool { grid-column: 3; grid-row: 1 / span 2; border-top: 4px solid var(--green); display: grid; place-content: center; text-align: center; font-size: 15px; font-weight: 800; }
+.flow-rank { grid-column: 4 / span 2; grid-row: 1 / span 2; border-top: 4px solid var(--green); display: grid; place-content: center; text-align: center; font-size: 16px; font-weight: 800; }
+.flow-users { grid-column: 6; grid-row: 1 / span 2; border-top: 4px solid var(--purple); display: grid; gap: 6px; }
+.flow-users span { display: block; background: #f3f1fa; color: var(--purple); border-radius: 4px; padding: 5px 7px; font-size: 10px; font-weight: 700; }
+.flow-feedback { grid-column: 7; grid-row: 1 / span 2; border-top: 4px solid var(--red); display: grid; place-content: center; text-align: center; font-size: 14px; font-weight: 800; }
+.flow-gate small, .flow-pool small, .flow-rank small, .flow-feedback small { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; line-height: 1.45; font-weight: 600; }
+.main-flow-panel, .ugc-race-diagram, .pipeline-example { margin-bottom: 14px; }
+.big-flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px; padding: 15px; overflow: auto; }
+.flow-card { position: relative; min-width: 178px; background: #fbfcfd; border: 1px solid #dfe4e8; border-radius: 6px; padding: 12px; }
+.flow-card:not(:last-child)::after, .race-step-card:not(:last-child)::after { content: ""; position: absolute; top: 50%; right: -15px; width: 12px; border-top: 2px solid #b9c4ce; }
+.flow-card:not(:last-child)::before, .race-step-card:not(:last-child)::before { content: ""; position: absolute; top: calc(50% - 4px); right: -17px; border-left: 7px solid #b9c4ce; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+.flow-card > span, .race-step-card > span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--blue-soft); color: var(--blue); font: 800 10px/1 monospace; margin-bottom: 8px; }
+.flow-card strong, .race-step-card strong { display: block; font-size: 12px; }
+.flow-card p, .race-step-card p { color: var(--muted); font-size: 9px; line-height: 1.5; margin: 6px 0 9px; }
+.flow-card div { display: flex; flex-wrap: wrap; gap: 4px; }
+.flow-card i { font-style: normal; color: #56616c; background: #eef1f4; border-radius: 3px; padding: 3px 5px; font-size: 8px; }
+.race-track { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; padding: 15px; overflow: auto; }
+.race-step-card { position: relative; min-width: 190px; background: #fffaf1; border: 1px solid #ecd7ae; border-radius: 6px; padding: 12px; }
+.race-step-card > span { background: var(--amber-soft); color: var(--amber); }
+.race-step-card em { display: block; color: var(--amber); background: white; border: 1px solid #eddcb9; border-radius: 4px; padding: 6px; font-size: 9px; font-style: normal; font-weight: 750; }
+.pipeline-example { display: grid; grid-template-columns: .95fr 58px 1.35fr .95fr; gap: 12px; align-items: stretch; }
+.example-user, .example-feed, .example-feedback, .example-arrow { background: white; border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.example-user { border-left: 4px solid var(--purple); }
+.example-user span { display: block; color: var(--purple); font-size: 10px; font-weight: 800; margin-bottom: 7px; }
+.example-user strong { display: block; font-size: 15px; margin-bottom: 8px; }
+.example-user p, .example-feedback p { color: var(--muted); font-size: 10px; line-height: 1.55; margin: 0; }
+.example-arrow { display: grid; place-items: center; color: var(--blue); font-size: 13px; font-weight: 800; background: var(--blue-soft); border-color: #cfe2ef; }
+.example-feed { display: grid; gap: 7px; }
+.example-feed div { display: grid; grid-template-columns: 24px 1fr; gap: 7px; align-items: center; padding: 8px; background: #fafbfc; border: 1px solid #e6e9ed; border-radius: 5px; }
+.example-feed b { grid-row: span 2; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--green-soft); color: var(--green); font: 800 10px/1 monospace; }
+.example-feed strong { font-size: 11px; }
+.example-feed span { color: var(--muted); font-size: 9px; }
+.example-feedback { border-left: 4px solid var(--red); display: grid; align-content: center; }
+.example-feedback strong { display: block; color: var(--red); font-size: 13px; margin-bottom: 7px; }
 .pipeline-map { display: grid; grid-template-columns: minmax(220px, .82fr) minmax(290px, 1.35fr) minmax(220px, .88fr) minmax(220px, .88fr); gap: 13px; margin-bottom: 14px; align-items: stretch; }
 .pipeline-lane { position: relative; display: grid; align-content: start; gap: 9px; border: 1px solid var(--line); border-radius: 6px; background: #f9fafb; padding: 12px; }
 .pipeline-lane::after { content: ""; position: absolute; top: 50%; right: -14px; width: 14px; border-top: 2px solid #c3ccd4; }
@@ -430,6 +476,12 @@ input[type="range"] { min-width: 0; width: 100%; accent-color: var(--blue); }
   .pipeline-lane::after { display: none; }
   .pipeline-output { grid-template-columns: 1fr; }
   .target-flow { grid-template-columns: 1fr 1fr; }
+  .visual-flow { grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
+  .visual-flow::before, .visual-flow::after { display: none; }
+  .flow-source.official, .flow-source.ugc, .flow-gate, .flow-pool, .flow-rank, .flow-users, .flow-feedback { grid-column: auto; grid-row: auto; }
+  .big-flow { grid-template-columns: repeat(5, minmax(178px, 1fr)); }
+  .pipeline-example { grid-template-columns: 1fr; }
+  .example-arrow { min-height: 44px; }
 }
 
 @media (max-width: 820px) {
@@ -475,6 +527,10 @@ input[type="range"] { min-width: 0; width: 100%; accent-color: var(--blue); }
   .pipeline-hero { grid-template-columns: 1fr; }
   .pipeline-legend { grid-template-columns: 1fr 1fr; }
   .pipeline-map { grid-template-columns: 1fr; }
+  .visual-flow { grid-template-columns: 1fr; }
+  .big-flow, .race-track { grid-template-columns: 1fr; overflow: visible; }
+  .flow-card, .race-step-card { min-width: 0; }
+  .flow-card:not(:last-child)::after, .flow-card:not(:last-child)::before, .race-step-card:not(:last-child)::after, .race-step-card:not(:last-child)::before { display: none; }
   .config-layout { grid-template-columns: 1fr; }
   .frequency-panel, .config-preview { grid-column: auto; }
   .formula-intro { grid-template-columns: 1fr; }
