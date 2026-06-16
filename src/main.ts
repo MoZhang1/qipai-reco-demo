@@ -346,6 +346,8 @@ function runView() {
     </section>
     ${dataNote("用户画像、近期游戏行为、视频行为和当前入口场景", "切换用户或场景后重新执行准入、召回、粗排、精排与重排", "模拟不同用户在不同位置看到的推荐结果")}
 
+    ${userRankingContext(user, result.ranked)}
+
     <section class="kpi-grid">
       ${kpi("准入内容", `${result.admittedCount}`, `过滤 ${result.filteredCount} 条风险或待审内容`, [9, 9, 10, 10, 10, result.admittedCount], "内容状态、授权、版权风险、质量分", "通过硬性准入规则的视频数")}
       ${kpi("召回候选", `${result.recalledCount}`, "7 路召回合并去重", [5, 7, 6, 8, 7, result.recalledCount], "用户兴趣、游戏、地域、阶段、热门、运营、探索召回", "各路候选按 videoId 合并去重")}
@@ -373,8 +375,77 @@ function runView() {
   `;
 }
 
+function chipList(items: string[], empty = "无") {
+  return items.length ? items.map((item) => `<i>${item}</i>`).join("") : `<i>${empty}</i>`;
+}
+
+function userStageGoal(user: UserProfile) {
+  if (user.stage === "新增") return "先让用户看懂玩法并完成首局";
+  if (user.stage === "低活") return "用轻松内容重新接住用户，再逐步导回游戏";
+  if (user.stage === "沉默") return "降低回归门槛，优先用地域和熟人局内容召回";
+  if (user.stage === "回流") return "承接回流兴趣，尽快促成稳定开局";
+  return "保持游戏兴趣，补充技巧和爽点内容提高留存";
+}
+
+function userRankingContext(user: UserProfile, ranked: RankedVideo[]) {
+  const top = ranked[0];
+  const topText = top
+    ? `因此首位优先给到「${top.video.title}」：它同时命中${top.recallSources.slice(0, 2).join("、")}，精排分 ${score(top.breakdown.feedScore)}，游戏回流预估 ${pct(top.breakdown.pGameReturn)}。`
+    : "当前没有可推荐内容。";
+  return `
+    <section class="ranking-context">
+      <div class="panel user-profile-card">
+        <div class="panel-head"><div><h2>当前用户画像</h2><p>这个用户决定了下面瀑布流为什么这样排</p></div><span class="result-badge">${user.id}</span></div>
+        <div class="profile-grid">
+          <div><span>用户阶段</span><strong>${user.stage}</strong><p>${userStageGoal(user)}</p></div>
+          <div><span>地区 / 水平</span><strong>${user.region} · ${user.skill}</strong><p>地域内容、玩法深度和讲解难度都会受影响。</p></div>
+          <div><span>近期玩的游戏</span><strong>${user.recentGames.join("、") || "暂无"}</strong><p>近期游戏会强影响游戏匹配和召回。</p></div>
+          <div><span>流失/历史游戏</span><strong>${[...user.lostGames, ...user.historyGames].slice(0, 3).join("、") || "暂无"}</strong><p>用于召回以前玩过但最近没打开的游戏。</p></div>
+        </div>
+        <div class="profile-tags">
+          <div><b>内容偏好</b><span>${chipList(user.preferredTypes)}</span></div>
+          <div><b>主题偏好</b><span>${chipList(user.preferredTopics)}</span></div>
+          <div><b>情绪偏好</b><span>${chipList(user.preferredEmotions)}</span></div>
+          <div><b>近期负反馈</b><span>${chipList(user.fastSkippedTypes, "暂无明显负反馈")}</span></div>
+        </div>
+      </div>
+      <div class="panel ranking-logic-card">
+        <div class="panel-head"><div><h2>这次瀑布流怎么排</h2><p>按当前用户和当前场景实时计算</p></div></div>
+        <div class="logic-flow">
+          <div><span>1</span><strong>先过滤</strong><p>只保留已入库、已授权、低版权风险、质量达标内容。</p></div>
+          <div><span>2</span><strong>再召回</strong><p>按游戏、阶段、场景、标签、泛娱乐、热门和探索召回。</p></div>
+          <div><span>3</span><strong>粗排</strong><p>先看匹配、质量、近期表现和业务目标，筛出精排候选。</p></div>
+          <div><span>4</span><strong>精排</strong><p>重点计算有效播放、完播、互动、游戏回流和生命周期提升。</p></div>
+          <div><span>5</span><strong>重排</strong><p>最后做同类型、同作者、强导流间隔控制。</p></div>
+        </div>
+        <div class="logic-conclusion"><strong>当前排序结论</strong><p>${topText}</p></div>
+      </div>
+    </section>
+  `;
+}
+
 function kpi(label: string, value: string, note: string, values: number[], source: string, calculation: string) {
   return `<article class="kpi"><div><span>${label}</span><strong>${value}</strong><small>${note}</small><p class="kpi-definition"><b>数据</b>${source}<br><b>口径</b>${calculation}</p></div>${sparkline(values)}</article>`;
+}
+
+function contributionPill(label: string, value: number) {
+  return `<span><b>${label}</b><em>${score(value)}</em></span>`;
+}
+
+function rankingReason(item: RankedVideo) {
+  const v = item.video;
+  const b = item.breakdown;
+  const user = currentUser();
+  const reasons: string[] = [];
+  if ([...user.recentGames, ...user.historyGames, ...user.lostGames].includes(v.game)) reasons.push(`用户玩过/流失过${v.game}`);
+  if (user.preferredTypes.includes(v.primaryType)) reasons.push(`内容类型命中偏好「${v.primaryType}」`);
+  if (v.targetStages.includes(user.stage)) reasons.push(`适合${user.stage}用户`);
+  if (v.region.includes(user.region) || v.region.includes("浙江")) reasons.push(`地域与${user.region}相关`);
+  if (v.scenes.includes(state.scene)) reasons.push(`可投放到${state.scene}`);
+  if (item.recallSources.includes("棋牌泛娱乐召回")) reasons.push("低活/沉默用户触发棋牌泛娱乐承接");
+  if (b.negativePenalty > 0.2) reasons.push("但用户对同类内容有负反馈，已扣分");
+  if (v.strongGuide && !user.guideCooldown) reasons.push("视频可承接到游戏入口");
+  return reasons.length ? reasons.slice(0, 4).join("；") : "主要由有效播放、完播和游戏回流预测分推动";
 }
 
 function recommendationRow(item: RankedVideo) {
@@ -393,6 +464,17 @@ function recommendationRow(item: RankedVideo) {
       <span class="score-cell primary-score"><small>精排分</small><strong>${score(item.breakdown.feedScore)}</strong></span>
       <span class="return-cell"><small>回流概率</small><strong>${pct(item.breakdown.pGameReturn)}</strong><em>${item.guideEntry}</em></span>
       <span class="row-arrow">›</span>
+      <span class="rank-explain">
+        <span class="why-line"><b>为什么排第 ${item.rank}：</b>${rankingReason(item)}</span>
+        <span class="contribution-pills">
+          ${contributionPill("游戏匹配", item.breakdown.gameMatch)}
+          ${contributionPill("阶段匹配", item.breakdown.userStageMatch)}
+          ${contributionPill("场景匹配", item.breakdown.sceneMatch)}
+          ${contributionPill("有效播放", item.breakdown.pValidPlay)}
+          ${contributionPill("游戏回流", item.breakdown.pGameReturn)}
+          ${item.breakdown.negativePenalty > 0 ? contributionPill("负反馈扣分", item.breakdown.negativePenalty) : ""}
+        </span>
+      </span>
     </button>
   `;
 }
