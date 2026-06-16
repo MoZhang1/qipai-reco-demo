@@ -464,18 +464,176 @@ function contentRow(video: Video) {
   </tr>`;
 }
 
+function createMockUgcSubmission(): Video {
+  const id = `UGC_${String(Date.now()).slice(-6)}`;
+  return {
+    id,
+    title: "新上传：朋友局最后一手笑出声",
+    author: "刚上传的玩家",
+    authorType: "玩家",
+    source: "玩家投稿",
+    authorized: false,
+    copyrightRisk: "低",
+    status: "待审核",
+    game: "双扣",
+    gameCluster: "地方棋牌",
+    gameplay: ["朋友局", "输赢反应", "残局"],
+    region: ["浙江"],
+    duration: 34,
+    orientation: "竖屏",
+    primaryType: "棋牌泛娱乐",
+    secondaryType: "打牌段子",
+    format: "真人出镜",
+    depth: "浅层",
+    topics: ["亲友局故事", "输赢反应"],
+    keywords: ["朋友局", "打牌段子", "老玩家"],
+    highlights: ["反转", "地域共鸣"],
+    emotions: ["搞笑", "共鸣", "轻松"],
+    targetStages: ["低活", "沉默", "回流"],
+    targetSkills: ["新手", "进阶", "高手"],
+    targetRegions: ["浙江"],
+    targetInterests: ["双扣用户", "地方棋牌用户"],
+    scenes: ["首页推荐流", "匹配等待", "退出前"],
+    businessGoal: "召回",
+    action: "常规分发",
+    priority: "B",
+    quality: 0.76,
+    ageHours: 0,
+    isUgc: true,
+    racePool: "T0",
+    authorCredit: 0.62,
+    operationBoost: 0,
+    strongGuide: false,
+    thumbnail: "/thumbs/final-09.jpg",
+    metrics: {
+      exposure: 0,
+      validPlayRate: 0,
+      finishRate: 0,
+      interactionRate: 0,
+      negativeRate: 0,
+      reportRate: 0,
+      gameReturnRate: 0,
+      nextDayReturnRate: 0,
+    },
+  };
+}
+
+function approveNextUgc() {
+  let approved = false;
+  state.videos = state.videos.map((video) => {
+    if (approved || !video.isUgc || video.status !== "待审核") return video;
+    approved = true;
+    return {
+      ...video,
+      authorized: true,
+      status: "已入库",
+      action: "优先分发",
+      priority: "A",
+      quality: Math.max(video.quality, 0.82),
+      authorCredit: Math.max(video.authorCredit, 0.68),
+      metrics: {
+        exposure: 120,
+        validPlayRate: 0.73,
+        finishRate: 0.62,
+        interactionRate: 0.16,
+        negativeRate: 0.012,
+        reportRate: 0.001,
+        gameReturnRate: 0.096,
+        nextDayReturnRate: 0.25,
+      },
+    };
+  });
+}
+
+function flowStep(index: string, title: string, source: string, output: string, owner: string) {
+  return `<article class="ugc-flow-step">
+    <span>${index}</span>
+    <div><strong>${title}</strong><p>${source}</p><em>${output}</em><small>${owner}</small></div>
+  </article>`;
+}
+
+function ugcLifecycleRow(stage: string, condition: string, data: string, action: string) {
+  return `<tr><td><strong>${stage}</strong></td><td>${condition}</td><td>${data}</td><td>${action}</td></tr>`;
+}
+
 function raceView() {
   const pools = ["T0", "T1", "T2", "T3", "T4"] as const;
+  const ugcVideos = state.videos.filter((v) => v.isUgc);
+  const pending = ugcVideos.filter((v) => v.status === "待审核");
+  const admittedUgc = ugcVideos.filter((v) => v.status === "已入库");
+  const coldTesting = admittedUgc.filter((v) => ["T0", "T1"].includes(v.racePool));
+  const needReview = ugcVideos.filter((v) => v.status === "已下架" || raceDecision(v).action === "复审");
+  const promotable = admittedUgc.filter((v) => raceDecision(v).action === "晋级");
   return `
+    <section class="ugc-upload-console">
+      <div class="upload-copy">
+        <span class="block-label">UGC 上传到赛马全流程</span>
+        <h2>从玩家投稿开始，到审核入库、冷启动试投、赛马晋级或降权</h2>
+        <p>这页模拟的是后续有 UGC 供给后的真实运营后台链路：上传不是直接进推荐，而是先过素材、版权、合规、标签和质量门槛，再进入 T0/T1 小流量测试。</p>
+      </div>
+      <div class="upload-actions">
+        <button class="button primary" data-action="simulate-upload">模拟用户上传视频</button>
+        <button class="button secondary" data-action="approve-ugc">审核通过并进入 T0</button>
+      </div>
+    </section>
+
+    <section class="ugc-flow">
+      ${flowStep("01", "用户上传", "App 内上传视频、标题、玩法、地域和授权确认", "生成投稿单与素材文件，状态=待审核", "用户侧 / 投稿服务")}
+      ${flowStep("02", "机器初审", "读取视频指纹、OCR/ASR、封面、标题、作者信用", "拦截版权、低质、违规表达；通过后进入人工抽检", "审核服务")}
+      ${flowStep("03", "标签入库", "结合现有标签体系识别游戏、玩法、内容类型、情绪、目标人群", "形成推荐可用标签，写入内容池", "内容理解服务")}
+      ${flowStep("04", "T0 冷启动", "按同游戏、同内容类型、同地域分桶给最小样本曝光", "只看小流量下有效播放、完播、互动、负反馈", "推荐服务")}
+      ${flowStep("05", "T1/T2 赛马", "达到样本量后与同桶均值比较", "表现好晋级，表现一般继续测试，差或风险高降权/复审", "赛马任务")}
+      ${flowStep("06", "稳定分发", "进入 T3/T4 后参与正常召回、粗排、精排和频控", "成为推荐流稳定供给，仍持续监控衰退与风险", "推荐策略")}
+    </section>
+
     <section class="race-summary">
-      <div><strong>${state.videos.filter((v) => v.isUgc).length}</strong><span>UGC 内容</span></div>
-      <div><strong>${state.videos.filter((v) => v.isUgc && ["T0", "T1"].includes(v.racePool)).length}</strong><span>冷启动测试中</span></div>
-      <div><strong>${state.videos.filter((v) => v.isUgc && raceDecision(v).action === "晋级").length}</strong><span>达到晋级条件</span></div>
+      <div><strong>${ugcVideos.length}</strong><span>UGC 投稿总量</span></div>
+      <div><strong>${pending.length}</strong><span>待审核投稿</span></div>
+      <div><strong>${coldTesting.length}</strong><span>冷启动测试中</span></div>
+      <div><strong>${promotable.length}</strong><span>达到晋级条件</span></div>
+      <div><strong>${needReview.length}</strong><span>风险复审 / 下架</span></div>
       <button class="button primary" data-action="advance-race">执行一轮赛马判断</button>
     </section>
-    ${dataNote("仅统计 isUgc=true 的投稿内容及其累计曝光、播放、互动、回流和负反馈", "同游戏 + 同内容类型 + 同流量池分桶比较，达到阈值才逐级晋升", "控制新 UGC 的试投成本，让优质内容通过真实反馈获得更多流量")}
+    ${dataNote("投稿单、审核结果、内容标签、作者信用、曝光播放和游戏回流日志", "先准入后赛马；同游戏 + 同内容类型 + 同流量池分桶比较，达到阈值才逐级晋升", "控制新 UGC 的试投成本，让优质内容通过真实反馈获得更多流量")}
+    <section class="ugc-workspace">
+      <div class="panel">
+        <div class="panel-head"><div><h2>上传与审核队列</h2><p>未通过准入的内容不会进入 T0 赛马池</p></div><span class="result-badge">${pending.length} 条待处理</span></div>
+        <div class="ugc-queue">
+          ${pending.map((video) => `<article>
+            <img src="${assetUrl(video.thumbnail)}" alt="" />
+            <div><strong>${video.title}</strong><p>${video.author} · ${video.game} · ${video.primaryType}</p><small>机器建议：版权低风险，质量 ${score(video.quality)}，需补充授权确认与标签复核</small></div>
+            <span class="status blocked">待审核</span>
+          </article>`).join("") || `<p class="empty">暂无待审核投稿，点击“模拟用户上传视频”可生成一条。</p>`}
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><h2>入库门槛</h2><p>从上传到 T0 前必须满足的硬条件</p></div></div>
+        <div class="gate-list">
+          <div><strong>素材可用</strong><p>视频可播放、时长 10-90 秒、画面方向适配竖屏流。</p></div>
+          <div><strong>权利清晰</strong><p>用户确认授权；视频指纹未命中搬运或未授权素材。</p></div>
+          <div><strong>合规安全</strong><p>不含赌博收益承诺、诱导充值、辱骂或敏感表达。</p></div>
+          <div><strong>标签完整</strong><p>至少有游戏、玩法、一级内容类型、场景、人群、情绪标签。</p></div>
+        </div>
+      </div>
+    </section>
     <section class="race-board">
       ${pools.map((pool) => raceColumn(pool)).join("")}
+    </section>
+    <section class="panel lifecycle-panel">
+      <div class="panel-head"><div><h2>UGC 流量池生命周期</h2><p>每一层需要什么数据、如何判断、系统做什么动作</p></div></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>阶段</th><th>进入条件</th><th>核心观察数据</th><th>系统动作</th></tr></thead>
+          <tbody>
+            ${ugcLifecycleRow("上传待审", "用户提交视频、标题、授权确认", "素材状态、标题文本、OCR/ASR、账号信用", "生成投稿单；未审核前不推荐")}
+            ${ugcLifecycleRow("准入入库", "审核通过且标签完整，质量分 ≥ 60", "版权风险、合规风险、质量分、标签完整度", "写入内容池，racePool=T0")}
+            ${ugcLifecycleRow("T0 入库待测", "每条内容获得最小曝光样本", "曝光、有效播放、完播、快速划走、举报", "小流量试投，不参与强导流")}
+            ${ugcLifecycleRow("T1 冷启动池", "T0 数据达到基础阈值且无风险", "同桶有效播放率、完播率、负反馈率", "扩大样本，继续同桶比较")}
+            ${ugcLifecycleRow("T2/T3 赛马池", "表现超过同桶均值或业务目标明显", "互动、回流、次日回访、作者稳定性", "进入更多召回通道，可参与精排")}
+            ${ugcLifecycleRow("T4 稳定推荐", "连续多轮表现稳定且风险低", "长期衰退、疲劳、负反馈、商业转化", "进入稳定供给；异常时降权或复审")}
+          </tbody>
+        </table>
+      </div>
     </section>
     <section class="panel race-rule-panel">
       <div class="panel-head"><div><h2>赛马判断标准</h2><p>按同游戏、同内容类型和同流量池比较，棋牌泛娱乐单独分池</p></div></div>
@@ -491,7 +649,7 @@ function raceView() {
 }
 
 function raceColumn(pool: Video["racePool"]) {
-  const items = state.videos.filter((video) => video.isUgc && video.racePool === pool);
+  const items = state.videos.filter((video) => video.isUgc && video.status === "已入库" && video.racePool === pool);
   const labels = { T0: "入库待测", T1: "冷启动池", T2: "一级赛马", T3: "二级赛马", T4: "稳定推荐" };
   return `<div class="race-column">
     <div class="race-column-head"><span class="pool ${pool.toLowerCase()}">${pool}</span><strong>${labels[pool]}</strong><em>${items.length}</em></div>
@@ -820,10 +978,16 @@ function handleAction(action: string) {
     void loadSnapshot();
     return;
   }
+  if (action === "simulate-upload") {
+    state.videos = [createMockUgcSubmission(), ...state.videos];
+  }
+  if (action === "approve-ugc") {
+    approveNextUgc();
+  }
   if (action === "advance-race") {
     const order = ["T0", "T1", "T2", "T3", "T4"] as const;
     state.videos = state.videos.map((video) => {
-      if (!video.isUgc) return video;
+      if (!video.isUgc || video.status !== "已入库") return video;
       const decision = raceDecision(video);
       if (decision.action !== "晋级") return video;
       const index = order.indexOf(video.racePool);
