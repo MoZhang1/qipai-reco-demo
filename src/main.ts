@@ -3,7 +3,7 @@ import { defaultConfig, scenes, users, videos as seedVideos } from "./data";
 import { runRecommendation } from "./recommendation";
 import type { RankedVideo, Scene, StrategyConfig, UserProfile, Video } from "./types";
 
-type View = "overview" | "run" | "content" | "pipeline" | "config" | "formula";
+type View = "overview" | "mvp" | "run" | "content" | "pipeline" | "config" | "formula";
 
 interface DashboardSnapshot {
   generatedAt: string;
@@ -76,11 +76,12 @@ function shell(content: string) {
         </div>
         <nav>
           ${navItem("overview", "数据总览", "01")}
-          ${navItem("run", "推荐运行", "02")}
-          ${navItem("content", "内容池", "03")}
-          ${navItem("pipeline", "全链路流程", "04")}
-          ${navItem("config", "策略配置", "05")}
-          ${navItem("formula", "计算说明", "06")}
+          ${navItem("mvp", "最简方案", "02")}
+          ${navItem("run", "推荐运行", "03")}
+          ${navItem("content", "内容池", "04")}
+          ${navItem("pipeline", "全链路流程", "05")}
+          ${navItem("config", "策略配置", "06")}
+          ${navItem("formula", "计算说明", "07")}
         </nav>
         <div class="sidebar-status">
           <span class="status-dot"></span>
@@ -109,6 +110,7 @@ function shell(content: string) {
 function viewTitle() {
   const titles: Record<View, string> = {
     overview: "推荐后台数据总览",
+    mvp: "最简自动化推荐方案",
     run: "推荐运行与解释",
     content: "内容池与准入状态",
     pipeline: "视频入库到分发与 UGC 赛马全链路",
@@ -120,6 +122,7 @@ function viewTitle() {
 
 function render() {
   if (state.view === "overview") shell(overviewView());
+  if (state.view === "mvp") shell(mvpView());
   if (state.view === "run") shell(runView());
   if (state.view === "content") shell(contentView());
   if (state.view === "pipeline") shell(pipelineView());
@@ -204,6 +207,85 @@ function overviewView() {
         ${dataNote("召回、排序、频控、赛马、准入服务运行日志", "按事件发生时间倒序展示最近记录", "排查某条内容为什么被推荐、延后、晋级或拦截")}
         <div class="event-list">${data.events.map((item) => `<article><time>${item.time}</time><span class="event-type">${item.type}</span><div><strong>${item.title}</strong><p>${item.detail}</p></div></article>`).join("")}</div>
       </div>
+    </section>
+  `;
+}
+
+function mvpStep(index: string, title: string, desc: string, input: string, output: string) {
+  return `<article class="mvp-step">
+    <span>${index}</span>
+    <strong>${title}</strong>
+    <p>${desc}</p>
+    <dl><div><dt>输入</dt><dd>${input}</dd></div><div><dt>输出</dt><dd>${output}</dd></div></dl>
+  </article>`;
+}
+
+function mvpRule(title: string, content: string) {
+  return `<div><strong>${title}</strong><p>${content}</p></div>`;
+}
+
+function mvpView() {
+  return `
+    <section class="mvp-hero">
+      <div>
+        <h2>最小可上线版本：先做规则 + 日志闭环，不先做复杂模型</h2>
+        <p>目标是用最少系统改造，做到视频流可以自动给不同用户排不同顺序，并且每天能根据真实播放和游戏回流自动更新分数。</p>
+      </div>
+      <div class="mvp-result">
+        <span>上线目标</span>
+        <strong>2 周内可落地</strong>
+        <p>先覆盖首页视频流，后续再扩展 UGC 赛马、深度模型和精细化人群策略。</p>
+      </div>
+    </section>
+
+    <section class="mvp-flow">
+      ${mvpStep("1", "准备内容池", "只要内容有基础标签和准入状态，就可以进入自动分发。", "视频ID、游戏、内容类型、目标人群、状态、质量分", "可推荐内容列表")}
+      ${mvpStep("2", "准备用户画像", "先不用复杂画像，先取最稳定、最容易拿到的用户数据。", "最近玩的游戏、地区、活跃阶段、最近负反馈", "用户推荐请求画像")}
+      ${mvpStep("3", "请求时过滤", "用户打开视频流时，先过滤掉不能推荐的内容。", "内容状态、版权风险、质量分、用户屏蔽类型", "候选视频集合")}
+      ${mvpStep("4", "规则打分排序", "用一套固定公式打分，按分数从高到低出瀑布流。", "游戏匹配、阶段匹配、内容表现、回流率、负反馈", "Top 20 推荐列表")}
+      ${mvpStep("5", "日志回写更新", "用户看完后的行为每天回写，自动更新内容表现分。", "曝光、有效播放、完播、点击游戏、有效局、不感兴趣", "第二天自动变好的排序")}
+    </section>
+
+    <section class="mvp-layout">
+      <div class="panel">
+        <div class="panel-head"><div><h2>最简打分公式</h2><p>先用可解释规则，足够支撑自动化分发</p></div><span class="result-badge">MVP</span></div>
+        <div class="mvp-formula">
+          <code>推荐分 = 40% 游戏匹配 + 20% 用户阶段匹配 + 20% 内容表现 + 15% 游戏回流 + 5% 新内容探索 − 负反馈惩罚</code>
+        </div>
+        <div class="mvp-rules">
+          ${mvpRule("游戏匹配", "用户最近玩过或流失过双扣，双扣内容加高分；同类扑克内容给中等分。")}
+          ${mvpRule("用户阶段", "新增优先规则/避坑，低活优先段子/爽点/地域，活跃优先技巧/复盘。")}
+          ${mvpRule("内容表现", "按近 7 天有效播放率、完播率、互动率归一化计算。")}
+          ${mvpRule("游戏回流", "看完视频后进入游戏并完成有效局的内容加分。")}
+          ${mvpRule("负反馈", "快速划走、不感兴趣、举报、重复作者都扣分。")}
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><div><h2>最少需要接的数据</h2><p>没有这些数据也能做页面，但不能做自动推荐</p></div></div>
+        <div class="mvp-data-list">
+          <div><b>内容表</b><span>video_id、游戏、内容类型、标签、状态、质量分、封面、入口链接</span></div>
+          <div><b>用户表</b><span>user_id、最近游戏、地区、活跃阶段、最近负反馈类型</span></div>
+          <div><b>行为日志</b><span>曝光、播放时长、完播、点赞、点击游戏、不感兴趣、举报</span></div>
+          <div><b>游戏日志</b><span>视频后进入游戏、匹配入桌、完成有效局、次日回访</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel mvp-automation">
+      <div class="panel-head"><div><h2>自动化怎么跑</h2><p>不用先上复杂实时模型，先用两个离线任务 + 一个推荐接口</p></div></div>
+      <div class="automation-grid">
+        <div><span>每天 03:00</span><strong>更新内容分</strong><p>按近 7 天播放和回流日志，刷新每条视频的表现分。</p></div>
+        <div><span>每天 04:00</span><strong>更新用户画像</strong><p>按最近游戏、流失状态、负反馈，刷新用户阶段和偏好。</p></div>
+        <div><span>用户打开视频流</span><strong>实时生成推荐</strong><p>接口读取用户画像和内容池，过滤、打分、排序，返回 Top 20。</p></div>
+        <div><span>用户发生行为</span><strong>实时记日志</strong><p>曝光、播放、点击游戏、负反馈全部落日志，供第二天自动更新。</p></div>
+      </div>
+    </section>
+
+    <section class="mvp-acceptance">
+      <div><strong>第一版只验 4 个指标</strong><p>有效播放率、完播率、视频后进游戏率、视频后完成有效局率。</p></div>
+      <div><strong>第一版不做什么</strong><p>不做复杂深度学习、不做千人千面大模型、不做多层 UGC 赛马后台、不做二创治理。</p></div>
+      <div><strong>上线判断</strong><p>如果低活用户的视频后进游戏率提升，就继续扩大；如果负反馈升高，就先收紧强导流和活动内容。</p></div>
     </section>
   `;
 }
