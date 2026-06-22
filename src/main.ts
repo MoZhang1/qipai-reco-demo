@@ -3,7 +3,7 @@ import { defaultConfig, scenes, users, videos as seedVideos } from "./data";
 import { runRecommendation } from "./recommendation";
 import type { RankedVideo, Scene, StrategyConfig, UserProfile, Video } from "./types";
 
-type View = "overview" | "run" | "content" | "pipeline" | "config" | "formula";
+type View = "overview" | "strategy" | "run" | "content" | "pipeline" | "config" | "formula";
 
 interface DashboardSnapshot {
   generatedAt: string;
@@ -76,11 +76,12 @@ function shell(content: string) {
         </div>
         <nav>
           ${navItem("overview", "数据总览", "01")}
-          ${navItem("run", "推荐运行", "02")}
-          ${navItem("content", "内容池", "03")}
-          ${navItem("pipeline", "全链路流程", "04")}
-          ${navItem("config", "策略配置", "05")}
-          ${navItem("formula", "计算说明", "06")}
+          ${navItem("strategy", "落地策略", "02")}
+          ${navItem("run", "推荐运行", "03")}
+          ${navItem("content", "内容池", "04")}
+          ${navItem("pipeline", "全链路流程", "05")}
+          ${navItem("config", "策略配置", "06")}
+          ${navItem("formula", "计算说明", "07")}
         </nav>
         <div class="sidebar-status">
           <span class="status-dot"></span>
@@ -109,6 +110,7 @@ function shell(content: string) {
 function viewTitle() {
   const titles: Record<View, string> = {
     overview: "推荐后台数据总览",
+    strategy: "最低可落地推荐策略",
     run: "推荐运行与解释",
     content: "内容池与准入状态",
     pipeline: "视频入库到分发与 UGC 赛马全链路",
@@ -120,6 +122,7 @@ function viewTitle() {
 
 function render() {
   if (state.view === "overview") shell(overviewView());
+  if (state.view === "strategy") shell(strategyView());
   if (state.view === "run") shell(runView());
   if (state.view === "content") shell(contentView());
   if (state.view === "pipeline") shell(pipelineView());
@@ -204,6 +207,98 @@ function overviewView() {
         ${dataNote("召回、排序、频控、赛马、准入服务运行日志", "按事件发生时间倒序展示最近记录", "排查某条内容为什么被推荐、延后、晋级或拦截")}
         <div class="event-list">${data.events.map((item) => `<article><time>${item.time}</time><span class="event-type">${item.type}</span><div><strong>${item.title}</strong><p>${item.detail}</p></div></article>`).join("")}</div>
       </div>
+    </section>
+  `;
+}
+
+function strategyStep(index: string, title: string, text: string, output: string) {
+  return `<article class="strategy-step">
+    <span>${index}</span>
+    <strong>${title}</strong>
+    <p>${text}</p>
+    <em>${output}</em>
+  </article>`;
+}
+
+function strategyMetric(name: string, field: string, usage: string) {
+  return `<div><strong>${name}</strong><code>${field}</code><p>${usage}</p></div>`;
+}
+
+function strategyRace(pool: string, quota: string, condition: string, action: string) {
+  return `<tr>
+    <td><span class="pool ${pool.toLowerCase()}">${pool}</span></td>
+    <td>${quota}</td>
+    <td>${condition}</td>
+    <td>${action}</td>
+  </tr>`;
+}
+
+function strategyView() {
+  return `
+    <section class="strategy-hero">
+      <div>
+        <span>当前能力边界</span>
+        <h2>先用“用户圈层 + 视频标签 + 标签权重”完成第一版自动推荐</h2>
+        <p>第一版不依赖复杂模型。系统只要能识别用户属于哪个人群、视频有哪些标签、标签在不同人群下的权重，就可以生成可解释的瀑布流排序；UGC 赛马负责控制新内容拿多少流量。</p>
+      </div>
+      <aside>
+        <strong>推荐核心</strong>
+        <code>推荐分 = 人群命中分 × 35% + 标签权重分 × 40% + 内容表现分 × 15% + UGC赛马系数 × 10% − 频控/负反馈惩罚</code>
+      </aside>
+    </section>
+
+    <section class="strategy-flow">
+      ${strategyStep("1", "圈用户人群", "按现有用户数据把用户分到固定人群，不先做复杂画像。", "用户分层")}
+      ${strategyStep("2", "视频打标签", "每条视频绑定游戏、内容类型、题材、情绪、导流强度、适用人群。", "内容特征")}
+      ${strategyStep("3", "标签权重匹配", "读取当前用户人群的标签权重表，计算视频标签与用户人群的匹配分。", "候选排序分")}
+      ${strategyStep("4", "UGC 赛马控量", "UGC 不直接大流量分发，先按赛马池等级限制曝光上限。", "流量上限")}
+      ${strategyStep("5", "频控后出流", "同游戏、同类型、强导流、同作者逐条检查，输出最终瀑布流。", "推荐列表")}
+    </section>
+
+    <section class="strategy-layout">
+      <div class="panel">
+        <div class="panel-head"><div><h2>第一版必须准备的字段</h2><p>这些字段能支持推荐排序、赛马和后续策略修正</p></div></div>
+        <div class="strategy-metrics">
+          ${strategyMetric("用户人群", "user_segment", "如低活双扣用户、新手斗地主用户、沉默召回用户、活跃老玩家。")}
+          ${strategyMetric("用户游戏", "recent_game / lost_game", "用于判断优先推哪个游戏内容，以及视频后导哪个游戏入口。")}
+          ${strategyMetric("视频标签", "game_tag / content_tag / topic_tag", "来自现有标签体系，支持棋牌技巧、牌局爽点、打牌段子、棋牌短剧等垂类泛娱乐。")}
+          ${strategyMetric("标签权重", "segment_tag_weight", "不同用户人群下，同一个标签权重不同；这是第一版排序的主参数。")}
+          ${strategyMetric("内容表现", "valid_play / finish / negative", "有效播放、完播、负反馈先做最小闭环，不先上复杂预测模型。")}
+          ${strategyMetric("游戏转化", "game_click / effective_round", "视频后点击游戏、进入房间、完成有效局，用来修正导流标签和内容权重。")}
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><div><h2>标签权重怎么进入排序</h2><p>按人群读取权重，不同人群看到不同内容顺序</p></div></div>
+        <div class="strategy-formula">
+          <b>标签权重分</b>
+          <code>Σ(视频命中的标签 × 当前用户人群下该标签权重) / Σ(当前人群可用标签最大权重)</code>
+        </div>
+        <div class="strategy-example">
+          <span>例：低活双扣用户</span>
+          <p>双扣 +30，打牌段子 +18，地域朋友局 +15，短剧 +12，规则教学 +4，强活动导流 -8。</p>
+          <p>因此这个用户前排优先出现双扣段子、翻盘爽点、地域朋友局，而不是规则教学或强活动广告。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel strategy-race-panel">
+      <div class="panel-head"><div><h2>UGC 赛马怎么接入最低版推荐</h2><p>UGC 不是另一个推荐系统，而是推荐前的流量资格和流量上限</p></div><span class="result-badge">必须保留</span></div>
+      <div class="formula-table-wrap"><table class="formula-table strategy-race-table">
+        <thead><tr><th>赛马池</th><th>曝光上限</th><th>晋级/降级依据</th><th>进入推荐时的动作</th></tr></thead>
+        <tbody>
+          ${strategyRace("T0", "同桶 200-500 曝光", "审核通过且标签完整；重点看有效播放和负反馈", "只进入探索位，不参与主排序")}
+          ${strategyRace("T1", "同桶 1,000-3,000 曝光", "有效播放高于同桶均值，负反馈低于阈值", "参与低权重召回，赛马系数 0.6")}
+          ${strategyRace("T2", "同桶 5,000-10,000 曝光", "完播、互动、游戏点击至少两项优于同桶均值", "进入正常候选，赛马系数 0.85")}
+          ${strategyRace("T3", "按正常内容分发", "连续多轮稳定，且没有风险信号", "与官方内容同池排序，赛马系数 1.0")}
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="strategy-guardrails">
+      <div><strong>频控第一版</strong><p>同类型最多连续 ${state.config.maxSameTypeConsecutive} 条；同作者每页最多 ${state.config.maxSameAuthorPerPage} 条；强导流内容间隔不少于 ${state.config.strongGuideInterval} 条。</p></div>
+      <div><strong>导流第一版</strong><p>只有当视频游戏标签命中用户近期/流失游戏，且强导流未处于冷却期，才展示同款游戏入口。</p></div>
+      <div><strong>修正第一版</strong><p>每天按人群维度回看有效播放、完播、负反馈、游戏点击、有效局，调整对应人群的标签权重。</p></div>
     </section>
   `;
 }
